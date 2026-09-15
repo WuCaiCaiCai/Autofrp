@@ -129,9 +129,19 @@ sudo autof status       # 运行状态
 sudo autof restart      # 重启
 sudo autof stop         # 停止
 sudo autof logs         # 日志
-sudo autof uninstall    # 卸载
+sudo autof uninstall    # 完全卸载(服务/程序/配置/autof 命令)
+sudo autof uninstall-keep  # 仅移除 frps，保留配置
 sudo autof self-update  # 更新脚本自身
 ```
+
+### 卸载
+
+```bash
+sudo autof uninstall       # 完全卸载：停服务、删 frps、删配置目录、删 autof 命令
+sudo autof uninstall-keep  # 只删 frps 程序与服务，保留 /etc/autof 配置
+```
+
+也可在主界面 `4) 服务端控制` 里选择 `6) 仅移除 frps` 或 `7) 完全卸载`。
 
 ## 故障排查
 

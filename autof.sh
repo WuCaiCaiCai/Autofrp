@@ -617,6 +617,32 @@ service_ctl() {
   esac
 }
 
+uninstall_all() {
+  require_root
+  title "卸载 Autofrp"
+  printf '  将删除：\n' >&2
+  printf '   - frps systemd 服务 / 进程\n' >&2
+  printf '   - /usr/local/bin/frps\n' >&2
+  printf '   - 配置目录 %s\n' "$STATE_DIR" >&2
+  printf '   - 命令 /usr/local/bin/%s\n' "$APP" >&2
+  confirm "确认卸载?" || { info "已取消"; return 0; }
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop frps 2>/dev/null || true
+    systemctl disable frps 2>/dev/null || true
+    rm -f /etc/systemd/system/frps.service
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+  pkill -f '/usr/local/bin/frps' 2>/dev/null || true
+  rm -f /usr/local/bin/frps
+  if [ -n "$STATE_DIR" ] && [ "$STATE_DIR" != "/" ]; then
+    rm -rf "$STATE_DIR"
+  fi
+  rm -f "/usr/local/bin/$APP"
+  ok "已卸载：frps 服务与程序、配置目录、$APP 命令"
+  info "如需彻底清理，可检查 /etc/systemd/system/frps.service 是否残留"
+}
+
 server_menu() {
   while true; do
     [ -t 1 ] && clear
@@ -626,7 +652,8 @@ server_menu() {
     printf '  3) 重启\n'
     printf '  4) 状态\n'
     printf '  5) 日志\n'
-    printf '  6) 卸载\n'
+    printf '  6) 仅移除 frps(保留配置)\n'
+    printf '  7) 完全卸载(含配置与 autof 命令)\n'
     printf '  0) 返回\n'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
@@ -637,6 +664,7 @@ server_menu() {
       4) service_ctl status ;;
       5) service_ctl logs ;;
       6) service_ctl uninstall ;;
+      7) uninstall_all ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -717,7 +745,9 @@ $APP - NAT 小鸡 frps 一键工具
   $APP gen frps        打印 frps.toml
   $APP gen frpc        打印 frpc.toml
   $APP install         安装并启动 frps
-  $APP status|restart|stop|logs|uninstall
+  $APP status|restart|stop|logs
+  $APP uninstall       完全卸载(服务/程序/配置/autof 命令)
+  $APP uninstall-keep  仅移除 frps，保留配置
   $APP self-install    安装为 /usr/local/bin/$APP
   $APP self-update     更新脚本自身
   $APP help            显示帮助
@@ -740,7 +770,9 @@ main() {
       esac
       ;;
     install) install_frps ;;
-    status|restart|stop|logs|uninstall) service_ctl "$1" ;;
+    status|restart|stop|logs) service_ctl "$1" ;;
+    uninstall) uninstall_all ;;
+    uninstall-keep) service_ctl uninstall ;;
     self-install) self_install ;;
     self-update) self_update ;;
     help|-h|--help) usage ;;
