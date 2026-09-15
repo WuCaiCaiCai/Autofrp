@@ -14,10 +14,11 @@ else
   STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/autof"
 fi
 STATE_FILE="$STATE_DIR/state.conf"
-NAT_FILE="$STATE_DIR/nat_ports.conf"
 SVC_FILE="$STATE_DIR/services.conf"
+OLD_NAT_FILE="$STATE_DIR/nat_ports.conf"
 FRPS_CONF="$STATE_DIR/frps.toml"
 CLIENT_DIR="$STATE_DIR/clients"
+MIGRATE_FLAG="$STATE_DIR/.migrated_v2"
 
 if [ -t 1 ]; then
   C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
@@ -31,21 +32,14 @@ ok()    { printf '%s[+]%s %s\n' "$C_GREEN" "$C_RST" "$*" >&2; }
 warn()  { printf '%s[!]%s %s\n' "$C_YELLOW" "$C_RST" "$*" >&2; }
 err()   { printf '%s[x]%s %s\n' "$C_RED" "$C_RST" "$*" >&2; }
 title() { printf '\n%s== %s ==%s\n' "$C_BOLD" "$*" "$C_RST" >&2; }
-step()  { printf '\n%s>>> %s%s\n' "$C_BOLD" "$*" "$C_RST" >&2; }
 hr()    { printf '%s\n' "------------------------------------------------------------" >&2; }
 die()   { err "$*"; exit 1; }
 
-require_root() {
-  [ "$(id -u)" = "0" ] || die "该操作需要 root 权限，请用 sudo 运行"
-}
+require_root() { [ "$(id -u)" = "0" ] || die "该操作需要 root 权限，请用 sudo 运行"; }
 
 ask() {
   local prompt="$1" def="${2-}" ans=""
-  if [ -n "$def" ]; then
-    read -rp "$prompt [$def]: " ans || true
-  else
-    read -rp "$prompt: " ans || true
-  fi
+  if [ -n "$def" ]; then read -rp "$prompt [$def]: " ans || true; else read -rp "$prompt: " ans || true; fi
   printf '%s' "${ans:-$def}"
 }
 
@@ -56,105 +50,70 @@ confirm() {
 }
 
 is_uint() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
-
-valid_port() {
-  is_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
-}
-
+valid_port() { is_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 gen_token() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 24; }
-
-hint_control() {
-  printf '    · 控制端口 bindPort：frpc(家里电脑) 连接 frps 的入口，外网必须能访问\n' >&2
-  printf '      它在 VPS 内部监听，需在服务商网页端把某个外部端口映射到它\n' >&2
-}
-hint_local() {
-  printf '    · 本机端口 localPort：你家里服务实际监听的端口（如 MC 的 25565）\n' >&2
-}
-hint_remote() {
-  printf '    · 远端端口 remotePort：frps 在 VPS 上监听的端口，外网经「外部端口」访问它\n' >&2
-  printf '      只需 VPS 上不冲突，可以和本机端口不同\n' >&2
-}
-hint_external() {
-  printf '    · 外部端口：公网用户实际连接的端口，由服务商网页端映射而来\n' >&2
-  printf '      映射关系：外部端口 -> 内部端口\n' >&2
-}
+pause_key() { [ -t 0 ] || return 0; read -rp "按回车返回..." _ || true; }
 
 load_state() {
-  NICKNAME="我的 frps"
-  EXPOSE_MODE="v4"
-  BIND_ADDR="0.0.0.0"
-  BIND_PORT="7000"
-  KCP_PORT=""
-  QUIC_PORT=""
+  CONTROL_IN="7000"
+  CONTROL_OUT=""
   TOKEN=""
-  TLS_FORCE="false"
-  DASH_ENABLE="true"
-  DASH_ADDR="127.0.0.1"
-  DASH_PORT="7500"
-  DASH_USER="admin"
-  DASH_PASS=""
-  VHOST_HTTP=""
-  VHOST_HTTPS=""
-  SUBDOMAIN_HOST=""
-  MAX_PORTS="0"
-  LOG_LEVEL="info"
-  LOG_TO="console"
   FRP_VERSION=""
   PUBLIC_IP=""
   PUBLIC_IP6=""
-  PUBLIC_ADDR=""
   V4_STATUS=""
   V6_STATUS=""
-  AVAIL_V4=0
-  AVAIL_V6=0
   mkdir -p "$STATE_DIR" "$CLIENT_DIR" 2>/dev/null
-  touch "$NAT_FILE" "$SVC_FILE" 2>/dev/null
+  touch "$SVC_FILE" 2>/dev/null
   [ -f "$STATE_FILE" ] && . "$STATE_FILE"
+  migrate_old
 }
 
 save_state() {
   mkdir -p "$STATE_DIR" 2>/dev/null
   {
-    printf 'NICKNAME=%q\n' "$NICKNAME"
-    printf 'EXPOSE_MODE=%q\n' "$EXPOSE_MODE"
-    printf 'BIND_ADDR=%q\n' "$BIND_ADDR"
-    printf 'BIND_PORT=%q\n' "$BIND_PORT"
-    printf 'KCP_PORT=%q\n' "$KCP_PORT"
-    printf 'QUIC_PORT=%q\n' "$QUIC_PORT"
+    printf 'CONTROL_IN=%q\n' "$CONTROL_IN"
+    printf 'CONTROL_OUT=%q\n' "$CONTROL_OUT"
     printf 'TOKEN=%q\n' "$TOKEN"
-    printf 'TLS_FORCE=%q\n' "$TLS_FORCE"
-    printf 'DASH_ENABLE=%q\n' "$DASH_ENABLE"
-    printf 'DASH_ADDR=%q\n' "$DASH_ADDR"
-    printf 'DASH_PORT=%q\n' "$DASH_PORT"
-    printf 'DASH_USER=%q\n' "$DASH_USER"
-    printf 'DASH_PASS=%q\n' "$DASH_PASS"
-    printf 'VHOST_HTTP=%q\n' "$VHOST_HTTP"
-    printf 'VHOST_HTTPS=%q\n' "$VHOST_HTTPS"
-    printf 'SUBDOMAIN_HOST=%q\n' "$SUBDOMAIN_HOST"
-    printf 'MAX_PORTS=%q\n' "$MAX_PORTS"
-    printf 'LOG_LEVEL=%q\n' "$LOG_LEVEL"
-    printf 'LOG_TO=%q\n' "$LOG_TO"
     printf 'FRP_VERSION=%q\n' "$FRP_VERSION"
     printf 'PUBLIC_IP=%q\n' "$PUBLIC_IP"
     printf 'PUBLIC_IP6=%q\n' "$PUBLIC_IP6"
-    printf 'PUBLIC_ADDR=%q\n' "$PUBLIC_ADDR"
     printf 'V4_STATUS=%q\n' "$V4_STATUS"
     printf 'V6_STATUS=%q\n' "$V6_STATUS"
-    printf 'AVAIL_V4=%q\n' "$AVAIL_V4"
-    printf 'AVAIL_V6=%q\n' "$AVAIL_V6"
   } > "$STATE_FILE"
+}
+
+migrate_old() {
+  [ -f "$MIGRATE_FLAG" ] && return 0
+  local e tmp
+  [ -n "${BIND_PORT:-}" ] && CONTROL_IN="$BIND_PORT"
+  if [ -z "$CONTROL_OUT" ] && [ -f "$OLD_NAT_FILE" ]; then
+    e="$(awk -F'|' -v p="$CONTROL_IN" '$2==p{print $1; exit}' "$OLD_NAT_FILE" 2>/dev/null)"
+    [ -n "$e" ] && CONTROL_OUT="$e"
+  fi
+  if [ -s "$SVC_FILE" ] && [ -f "$OLD_NAT_FILE" ]; then
+    tmp="$(mktemp)"
+    while IFS='|' read -r n t lip lport p5 dom sec mux rem; do
+      [ -n "$n" ] || continue
+      if [ "$t" = "tcp" ] || [ "$t" = "udp" ]; then
+        e="$(awk -F'|' -v p="$p5" '$2==p{print $1; exit}' "$OLD_NAT_FILE" 2>/dev/null)"
+        [ -n "$e" ] && p5="$e"
+      fi
+      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$n" "$t" "$lip" "$lport" "$p5" "$dom" "$sec" "$mux" "$rem" >> "$tmp"
+    done < "$SVC_FILE"
+    mv "$tmp" "$SVC_FILE"
+  fi
+  save_state
+  touch "$MIGRATE_FLAG" 2>/dev/null
 }
 
 fetch_ip() {
   local fam="$1" urls u out
-  if [ "$fam" = "4" ]; then
-    urls=("https://ipv4.icanhazip.com" "https://api.ipify.org" "https://ipv4.ident.me")
-  else
-    urls=("https://ipv6.icanhazip.com" "https://api6.ipify.org" "https://ipv6.ident.me")
-  fi
+  if [ "$fam" = "4" ]; then urls=("https://ipv4.icanhazip.com" "https://api.ipify.org" "https://ipv4.ident.me")
+  else urls=("https://ipv6.icanhazip.com" "https://api6.ipify.org" "https://ipv6.ident.me"); fi
   for u in "${urls[@]}"; do
     out="$(curl -"$fam" -fsS --connect-timeout 4 --max-time 6 "$u" 2>/dev/null | tr -d '[:space:]')"
-    if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
+    [ -n "$out" ] && { printf '%s' "$out"; return 0; }
   done
   return 1
 }
@@ -168,243 +127,256 @@ is_private4() {
   esac
 }
 
-is_cgnat4() {
-  case "$1" in
-    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 0;;
-    *) return 1;;
-  esac
-}
-
 detect_env() {
-  OS_NAME="$(uname -s)"
-  ARCH_RAW="$(uname -m)"
-  LOCAL_V4=()
-  LOCAL_V6=()
-  local ip
+  local ip has_public4=false
+  LOCAL_V4=(); LOCAL_V6=()
   while IFS= read -r ip; do [ -n "$ip" ] && LOCAL_V4+=("$ip"); done < <(
-    ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2}'
-  )
+    ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2}')
   while IFS= read -r ip; do [ -n "$ip" ] && LOCAL_V6+=("$ip"); done < <(
-    ip -6 addr show scope global 2>/dev/null | awk '/inet6 /{sub(/\/.*/,"",$2); print $2}' | grep -viE '^(fe80|fc|fd)'
-  )
+    ip -6 addr show scope global 2>/dev/null | awk '/inet6 /{sub(/\/.*/,"",$2); print $2}' | grep -viE '^(fe80|fc|fd)')
   PUBLIC_IP="$(fetch_ip 4 2>/dev/null || true)"
   PUBLIC_IP6="$(fetch_ip 6 2>/dev/null || true)"
-
-  local has_public4=false has_cgnat=false
   for ip in "${LOCAL_V4[@]:-}"; do
     [ -n "$ip" ] || continue
-    if ! is_private4 "$ip"; then has_public4=true; fi
-    if is_cgnat4 "$ip"; then has_cgnat=true; fi
+    ! is_private4 "$ip" && has_public4=true
   done
+  if [ "$has_public4" = true ]; then V4_STATUS="公网 IPv4"
+  elif [ -n "$PUBLIC_IP" ]; then V4_STATUS="NAT IPv4"
+  else V4_STATUS="无 IPv4"; fi
+  if [ "${#LOCAL_V6[@]}" -gt 0 ]; then V6_STATUS="公网 IPv6"
+  elif [ -n "$PUBLIC_IP6" ]; then V6_STATUS="NAT IPv6"
+  else V6_STATUS="无 IPv6"; fi
+  [ -z "$PUBLIC_IP6" ] && [ "${#LOCAL_V6[@]}" -gt 0 ] && PUBLIC_IP6="${LOCAL_V6[0]}"
+}
 
-  if [ "$has_public4" = true ]; then
-    V4_STATUS="公网 IPv4"
-  elif [ -n "$PUBLIC_IP" ]; then
-    if [ "$has_cgnat" = true ]; then V4_STATUS="NAT IPv4 (CGNAT)"; else V4_STATUS="NAT IPv4 (私网)"; fi
+public_addr() {
+  if [ -n "$PUBLIC_IP" ]; then printf '%s' "$PUBLIC_IP"; else printf '%s' "$PUBLIC_IP6"; fi
+}
+
+RULE_LINE="$(printf '═%.0s' {1..60})"
+
+draw_header() {
+  local st
+  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
+    st="运行中 (PID $(pgrep -f '/usr/local/bin/frps' | head -1))"
   else
-    V4_STATUS="无 IPv4"
+    st="已停止"
   fi
-
-  if [ "${#LOCAL_V6[@]}" -gt 0 ]; then
-    V6_STATUS="公网 IPv6"
-  elif [ -n "$PUBLIC_IP6" ]; then
-    V6_STATUS="NAT IPv6"
-  else
-    V6_STATUS="无 IPv6"
-  fi
-
-  if [ -z "$PUBLIC_IP6" ] && [ "${#LOCAL_V6[@]}" -gt 0 ]; then
-    PUBLIC_IP6="${LOCAL_V6[0]}"
-  fi
-
-  if [ -n "$PUBLIC_IP" ]; then
-    PUBLIC_ADDR="$PUBLIC_IP"
-  elif [ -n "$PUBLIC_IP6" ]; then
-    PUBLIC_ADDR="[$PUBLIC_IP6]"
-  else
-    PUBLIC_ADDR=""
-  fi
-
-  AVAIL_V4=0
-  AVAIL_V6=0
-  [ -n "$PUBLIC_IP" ] && AVAIL_V4=1
-  { [ "${#LOCAL_V6[@]}" -gt 0 ] || [ -n "$PUBLIC_IP6" ]; } && AVAIL_V6=1
-}
-
-print_env_report() {
-  title "本机环境探测"
-  printf '  %-14s %s\n' "系统/架构" "$OS_NAME / $ARCH_RAW"
-  printf '  %-14s %s\n' "本地 IPv4" "${LOCAL_V4[*]:-无}"
-  printf '  %-14s %s\n' "本地 IPv6" "${LOCAL_V6[*]:-无}"
-  printf '  %-14s %s\n' "出口 IPv4" "${PUBLIC_IP:-无}"
-  printf '  %-14s %s\n' "出口 IPv6" "${PUBLIC_IP6:-无}"
-  hr
-  printf '  %-14s %s\n' "IPv4 判定" "$V4_STATUS"
-  printf '  %-14s %s\n' "IPv6 判定" "$V6_STATUS"
-  printf '  %-14s %s\n' "对外接入地址" "${PUBLIC_ADDR:-未知}"
-  if command -v ss >/dev/null 2>&1; then
-    local ports
-    ports="$(ss -tulnH 2>/dev/null | awk '{print $5}' | sed 's/.*://' | sort -n -u | tr '\n' ' ')"
-    printf '  %-14s %s\n' "已监听端口" "${ports:-无}"
-  fi
-  if [ -z "$PUBLIC_ADDR" ]; then
-    warn "未能获取出口公网 IP，可能是网络受限；生成配置时请手动填写对外地址。"
-  fi
-}
-
-nat_external_for() {
-  awk -F'|' -v p="$1" '$2==p{print $1; exit}' "$NAT_FILE" 2>/dev/null
-}
-
-nat_internal_exists() {
-  awk -F'|' -v p="$1" '$2==p{f=1} END{exit !f}' "$NAT_FILE" 2>/dev/null
-}
-
-nat_remove_internal() {
-  local internal="$1" tmp
-  tmp="$(mktemp)"
-  awk -F'|' -v p="$internal" '$2!=p' "$NAT_FILE" > "$tmp" && mv "$tmp" "$NAT_FILE"
-}
-
-nat_list() {
-  if [ ! -s "$NAT_FILE" ]; then
-    warn "暂无已登记的端口映射"
-    return 0
-  fi
-  printf '  %-4s %-10s %-10s %s\n' "序号" "外部端口" "内部端口" "备注"
-  hr
-  local i=0 line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    i=$((i + 1))
-    printf '  %-4s %-10s %-10s %s\n' "$i" \
-      "$(printf '%s' "$line" | cut -d'|' -f1)" \
-      "$(printf '%s' "$line" | cut -d'|' -f2)" \
-      "$(printf '%s' "$line" | cut -d'|' -f3)"
-  done < "$NAT_FILE"
-}
-
-nat_add() {
-  local ext int label
-  info "外部端口请先在服务商网页控制台做好转发，这里只登记对应关系"
-  hint_external
-  ext="$(ask '外部端口(公网，服务商网页端设置)')"
-  valid_port "$ext" || { err "外部端口非法"; return 1; }
-  printf '    · 内部端口：VPS 上实际监听的端口，外部端口会转发到它\n' >&2
-  int="$(ask '内部端口(VPS 上监听)')"
-  valid_port "$int" || { err "内部端口非法"; return 1; }
-  if nat_internal_exists "$int"; then
-    warn "内部端口 $int 已登记: 外部 $(nat_external_for "$int")"
-    confirm "仍要覆盖吗?" || return 1
-    nat_remove_internal "$int"
-  fi
-  label="$(ask '备注/用途' '未命名')"
-  printf '%s|%s|%s\n' "$ext" "$int" "$label" >> "$NAT_FILE"
-  ok "已登记: 外部 $ext -> 内部 $int ($label)"
-}
-
-nat_del() {
-  nat_list || return 0
-  local n; n="$(ask '要删除的序号(留空取消)')"
-  [ -n "$n" ] || return 0
-  is_uint "$n" || { err "序号非法"; return 1; }
-  local total; total="$(wc -l < "$NAT_FILE")"
-  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
-  sed -i "${n}d" "$NAT_FILE"
-  ok "已删除序号 $n"
-}
-
-map_internal_port() {
-  local internal="$1" label="$2" ext
-  if nat_internal_exists "$internal"; then
-    info "内部 $internal ($label) 已登记 -> 外部 $(nat_external_for "$internal")"
-    confirm "要修改这个登记吗?" || return 0
-  fi
-  printf '  %s：内部端口 %s 是 VPS 上监听的端口。\n' "$label" "$internal" >&2
-  hint_external
-  ext="$(ask "$label 的外部端口(公网，服务商网页端设置，留空跳过)")"
-  [ -n "$ext" ] || return 0
-  valid_port "$ext" || { err "端口非法"; return 1; }
-  nat_remove_internal "$internal"
-  printf '%s|%s|%s\n' "$ext" "$internal" "$label" >> "$NAT_FILE"
-  ok "已登记: 外部 $ext -> 内部 $internal ($label)"
-}
-
-nat_autofill() {
-  local item int label
-  local need=("$BIND_PORT:frps控制端口")
-  [ "$DASH_ENABLE" = true ] && need+=("$DASH_PORT:frps面板")
-  [ -n "$VHOST_HTTP" ] && need+=("$VHOST_HTTP:HTTP建站")
-  [ -n "$VHOST_HTTPS" ] && need+=("$VHOST_HTTPS:HTTPS建站")
-  local line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    int="$(printf '%s' "$line" | cut -d'|' -f5)"
-    [ -n "$int" ] && need+=("$int:服务 $(printf '%s' "$line" | cut -d'|' -f1)")
-  done < "$SVC_FILE"
-  for item in "${need[@]}"; do
-    int="${item%%:*}"
-    label="${item#*:}"
-    if nat_internal_exists "$int"; then
-      info "内部 $int 已登记为外部 $(nat_external_for "$int") ($label)"
-    else
-      warn "内部 $int ($label) 尚未登记映射，请确认服务商网页端已放行"
-      confirm "现在登记它的外部端口吗?" && map_internal_port "$int" "$label"
-    fi
-  done
+  printf '%s\n' "$RULE_LINE"
+  printf '  Autofrp  ·  frps 服务端\n'
+  printf '%s\n' "$RULE_LINE"
+  printf '  IPv4   %s  %s\n' "${V4_STATUS:-未探测}" "${PUBLIC_IP:-}"
+  printf '  IPv6   %s  %s\n' "${V6_STATUS:-未探测}" "${PUBLIC_IP6:-}"
+  printf '  frps   %s\n' "$st"
+  printf '  控制   内部 %s  对外 %s\n' "${CONTROL_IN:-未设置}" "${CONTROL_OUT:-未设置}"
+  printf '%s\n' "$RULE_LINE"
 }
 
 svc_unique_name() {
-  local base="$1"
-  local name="$base"
-  local n=1
+  local base="$1" name="$1" n=1
   while awk -F'|' -v x="$name" '$1==x{f=1} END{exit !f}' "$SVC_FILE" 2>/dev/null; do
     n=$((n + 1)); name="${base}-${n}"
   done
   printf '%s' "$name"
 }
 
-svc_append() {
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" >> "$SVC_FILE"
-}
+svc_append() { printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" >> "$SVC_FILE"; }
 
 svc_list() {
-  if [ ! -s "$SVC_FILE" ]; then
-    warn "暂无服务穿透配置"
-    return 0
-  fi
-  printf '  %-4s %-14s %-6s %-8s %-8s %-8s %s\n' "序号" "名称" "类型" "本机口" "远端口" "外部口" "备注"
+  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务"; return 0; fi
+  printf '  %-4s %-14s %-6s %-9s %-9s %s\n' "序号" "名称" "类型" "本机端口" "对外端口" "备注"
   hr
-  local i=0 name type lip lport rport domains secret mux remark ext
-  while IFS='|' read -r name type lip lport rport domains secret mux remark; do
+  local i=0 name type lip lport out dom sec mux rem
+  while IFS='|' read -r name type lip lport out dom sec mux rem; do
     [ -n "$name" ] || continue
     i=$((i + 1))
-    case "$type" in
-      tcp|udp) ext="$(nat_external_for "$rport")"; [ -n "$ext" ] || ext="未登记";;
-      http|https) ext="${VHOST_HTTP:-未启用}";;
-      *) ext="-";;
-    esac
-    printf '  %-4s %-14s %-6s %-8s %-8s %-8s %s\n' "$i" "$name" "$type" "$lport" "$rport" "$ext" "$remark"
+    [ -n "$out" ] || out="-"
+    printf '  %-4s %-14s %-6s %-9s %-9s %s\n' "$i" "$name" "$type" "$lport" "$out" "$rem"
   done < "$SVC_FILE"
 }
 
-svc_del() {
-  svc_list || return 0
-  local n; n="$(ask '要删除的序号(留空取消)')"
-  [ -n "$n" ] || return 0
+svc_count() { wc -l < "$SVC_FILE" 2>/dev/null || echo 0; }
+
+PICK=""
+svc_pick() {
+  svc_list || return 1
+  local n; n="$(ask '请输入序号(留空取消)')"
+  [ -n "$n" ] || return 1
   is_uint "$n" || { err "序号非法"; return 1; }
-  local total; total="$(wc -l < "$SVC_FILE")"
-  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
+  [ "$n" -ge 1 ] && [ "$n" -le "$(svc_count)" ] || { err "序号超出范围"; return 1; }
+  PICK="$n"
+}
+
+svc_detail() {
+  svc_pick || return 1
+  local n="$PICK"
+  local line name type lip lport out dom sec mux rem
+  line="$(sed -n "${n}p" "$SVC_FILE")"
+  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
+  title "服务: $name"
+  printf '  %-10s %s\n' "类型" "$type"
+  printf '  %-10s %s\n' "本机" "$lip:$lport"
+  case "$type" in
+    tcp|udp) printf '  %-10s %s\n' "对外端口" "$out";;
+    http|https) printf '  %-10s %s\n' "域名" "$dom";;
+  esac
+  [ -n "$rem" ] && printf '  %-10s %s\n' "备注" "$rem"
+  printf '\n'
+  print_block "该服务完整 frpc.toml (可直接复制)" "$(gen_frpc_single "$n")"
+}
+
+svc_add_common() {
+  local type="$1" name="$2" lip="$3" lport="$4" out="$5" dom="$6" sec="$7" mux="$8" rem="$9"
+  svc_append "$name" "$type" "$lip" "$lport" "$out" "$dom" "$sec" "$mux" "$rem"
+  ok "已添加: $name"
+}
+
+svc_add_port() {
+  local type="$1" def_lport="$2" def_out="$3" label="$4"
+  local lport out
+  printf '    本机端口：你机器上服务实际监听的端口\n' >&2
+  lport="$(ask "本机端口($label)" "$def_lport")"
+  valid_port "$lport" || { err "本机端口非法"; return 1; }
+  printf '    对外端口：玩家连接用，同时作为 frps 的 remotePort（服务商网页端请映射 对外->对外）\n' >&2
+  out="$(ask '对外端口' "${def_out:-$lport}")"
+  valid_port "$out" || { err "对外端口非法"; return 1; }
+  svc_add_common "$type" "$(svc_unique_name "$label")" "127.0.0.1" "$lport" "$out" "" "" "" "$label"
+}
+
+svc_preset_mc_java() { svc_add_port tcp 25565 "" "mc-java"; }
+svc_preset_mc_bedrock() { svc_add_port udp 19132 "" "mc-bedrock"; }
+
+svc_preset_emby() {
+  local lport dom
+  printf '    本机端口：Emby 实际监听端口\n' >&2
+  lport="$(ask 'Emby 本机端口' '8096')"
+  valid_port "$lport" || { err "端口非法"; return 1; }
+  dom="$(ask '访问域名')"
+  [ -n "$dom" ] || { err "域名不能为空"; return 1; }
+  svc_add_common http "$(svc_unique_name emby)" "127.0.0.1" "$lport" "" "$dom" "" "" "Emby"
+}
+
+svc_add_custom() {
+  title "其他自定义"
+  echo "  1) TCP   2) UDP   3) HTTP   4) HTTPS   5) STCP   6) XTCP   7) TCPMUX"
+  local c; c="$(ask '类型' '1')"
+  local type lip lport out="" dom="" sec="" mux="" name
+  case "$c" in
+    1) type=tcp;; 2) type=udp;; 3) type=http;; 4) type=https;;
+    5) type=stcp;; 6) type=xtcp;; 7) type=tcpmux;;
+    *) warn "无效类型"; return 1;;
+  esac
+  name="$(ask '名称' "$(svc_unique_name "$type")")"
+  lip="$(ask '本机地址' '127.0.0.1')"
+  printf '    本机端口：服务实际监听端口\n' >&2
+  lport="$(ask '本机端口')"
+  valid_port "$lport" || { err "本机端口非法"; return 1; }
+  case "$type" in
+    tcp|udp)
+      printf '    对外端口：玩家连接用，同时作为 frps 的 remotePort（服务商网页端映射 对外->对外）\n' >&2
+      out="$(ask '对外端口' "$lport")"
+      valid_port "$out" || { err "对外端口非法"; return 1; }
+      ;;
+    http|https)
+      dom="$(ask '自定义域名(多个用逗号分隔)')"
+      [ -n "$dom" ] || { err "域名不能为空"; return 1; }
+      ;;
+    stcp|xtcp)
+      sec="$(ask 'secretKey' "$(gen_token)")"
+      ;;
+    tcpmux)
+      dom="$(ask 'customDomains')"
+      mux="$(ask 'multiplexer' 'httpconnect')"
+      ;;
+  esac
+  svc_add_common "$type" "$name" "$lip" "$lport" "$out" "$dom" "$sec" "$mux" ""
+}
+
+svc_edit() {
+  svc_pick || return 1
+  local n="$PICK"
+  local line name type lip lport out dom sec mux rem v
+  line="$(sed -n "${n}p" "$SVC_FILE")"
+  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
+  v="$(ask '名称' "$name")"; name="$v"
+  v="$(ask '本机地址' "$lip")"; lip="$v"
+  printf '    本机端口：服务实际监听端口\n' >&2
+  v="$(ask '本机端口' "$lport")"; valid_port "$v" && lport="$v"
+  case "$type" in
+    tcp|udp)
+      printf '    对外端口：玩家连接用，也是 frps 的 remotePort\n' >&2
+      v="$(ask '对外端口' "$out")"; valid_port "$v" && out="$v"
+      ;;
+    http|https)
+      v="$(ask '域名' "$dom")"; dom="$v"
+      ;;
+    stcp|xtcp)
+      v="$(ask 'secretKey' "$sec")"; sec="$v"
+      ;;
+    tcpmux)
+      v="$(ask 'customDomains' "$dom")"; dom="$v"
+      v="$(ask 'multiplexer' "$mux")"; mux="$v"
+      ;;
+  esac
+  v="$(ask '备注' "$rem")"; rem="$v"
+  local newline="$name|$type|$lip|$lport|$out|$dom|$sec|$mux|$rem"
+  local tmp; tmp="$(mktemp)"
+  awk -v n="$n" -v nl="$newline" 'NR==n{print nl; next}{print}' "$SVC_FILE" > "$tmp" && mv "$tmp" "$SVC_FILE"
+  save_frps_config
+  save_client_configs
+  ok "已更新: $name"
+}
+
+svc_del() {
+  svc_pick || return 1
+  local n="$PICK"
   sed -i "${n}d" "$SVC_FILE"
+  save_frps_config
+  save_client_configs
   ok "已删除序号 $n"
 }
 
+svc_menu() {
+  while true; do
+    [ -t 1 ] && clear
+    draw_header
+    svc_list
+    printf '\n  1) Minecraft Java    2) Minecraft Bedrock   3) Emby\n'
+    printf '  4) 其他自定义        5) 查看服务详情\n'
+    printf '  6) 编辑服务          7) 删除服务\n'
+    printf '  0) 返回\n'
+    local c; c="$(ask '请选择' '0')"
+    printf '\n'
+    case "$c" in
+      1) svc_preset_mc_java ;;
+      2) svc_preset_mc_bedrock ;;
+      3) svc_preset_emby ;;
+      4) svc_add_custom ;;
+      5) svc_detail ;;
+      6) svc_edit ;;
+      7) svc_del ;;
+      0) return 0 ;;
+      *) warn "无效选项" ;;
+    esac
+    save_frps_config
+    save_client_configs
+    pause_key
+  done
+}
+
+domains_to_toml() {
+  local d="$1" out="" x
+  IFS=',' read -ra arr <<< "$d"
+  for x in "${arr[@]}"; do x="${x// /}"; [ -n "$x" ] && out="${out}\"${x}\", "; done
+  printf '[%s]' "${out%, }"
+}
+
 gen_frpc_proxy() {
-  local n="$1" name type lip lport rport domains secret mux remark line
+  local n="$1" line name type lip lport out dom sec mux rem
   line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
+  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
   [ -n "$name" ] || return 1
-  [ -n "$remark" ] && echo "# $remark"
+  [ -n "$rem" ] && echo "# $rem"
   echo "[[proxies]]"
   echo "name = \"$name\""
   echo "type = \"$type\""
@@ -412,15 +384,15 @@ gen_frpc_proxy() {
     tcp|udp)
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
-      echo "remotePort = $rport"
+      echo "remotePort = $out"
       ;;
     http|https)
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
-      [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
+      echo "customDomains = $(domains_to_toml "$dom")"
       ;;
     stcp|xtcp)
-      echo "secretKey = \"$secret\""
+      echo "secretKey = \"$sec\""
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
       ;;
@@ -428,346 +400,15 @@ gen_frpc_proxy() {
       echo "multiplexer = \"$mux\""
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
-      [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
+      echo "customDomains = $(domains_to_toml "$dom")"
       ;;
   esac
-}
-
-svc_detail() {
-  svc_list || return 0
-  local n; n="$(ask '要查看的序号(留空取消)')"
-  [ -n "$n" ] || return 0
-  is_uint "$n" || { err "序号非法"; return 1; }
-  local total; total="$(wc -l < "$SVC_FILE")"
-  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
-  local line name type lip lport rport domains secret mux remark
-  line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
-  title "服务详情: $name"
-  printf '  %-10s %s\n' "类型" "$type"
-  printf '  %-10s %s\n' "本机" "$lip:$lport"
-  case "$type" in
-    tcp|udp) printf '  %-10s %s\n' "frps 远端" "$rport";;
-    http|https) printf '  %-10s %s\n' "访问域名" "$domains";;
-  esac
-  [ -n "$remark" ] && printf '  %-10s %s\n' "备注" "$remark"
-  show_chain "$name" "$type" "$lip" "$lport" "$rport" "$domains"
-  printf '\n'
-  local fam=4
-  [ "$EXPOSE_MODE" = "v6" ] && fam=6
-  print_block "该服务的完整 frpc.toml" "$(gen_frpc_single "$fam" "$n")"
-}
-
-nat_external_owner() {
-  awk -F'|' -v p="$1" '$1==p{print $2; exit}' "$NAT_FILE" 2>/dev/null
-}
-
-ask_expose_ports() {
-  local label="$1" owner
-  if [ "$EXPOSE_MODE" = "v6" ]; then
-    E_PORT="$L_PORT"
-    R_PORT="$L_PORT"
-    return 0
-  fi
-  hint_external
-  E_PORT="$(ask "外部端口($label，玩家/用户连接用)" "$L_PORT")"
-  valid_port "$E_PORT" || { err "外部端口非法"; return 1; }
-  owner="$(nat_external_owner "$E_PORT")"
-  if [ -n "$owner" ]; then
-    warn "外部端口 $E_PORT 已登记给内部端口 $owner"
-    confirm "仍要使用吗?" || return 1
-  fi
-  printf '    · 若服务商映射到的内部端口与外部不同，在此填写；相同则直接回车\n' >&2
-  R_PORT="$(ask 'VPS 内部端口(frps 监听，默认同外部)' "$E_PORT")"
-  valid_port "$R_PORT" || { err "内部端口非法"; return 1; }
-  nat_remove_internal "$R_PORT"
-  printf '%s|%s|%s\n' "$E_PORT" "$R_PORT" "$label" >> "$NAT_FILE"
-  ok "已登记映射: 外部 $E_PORT -> 内部 $R_PORT ($label)"
-}
-
-show_chain() {
-  local name="$1" type="$2" lip="$3" lport="$4" rport="$5" ext
-  case "$type" in
-    tcp|udp)
-      if [ "$EXPOSE_MODE" = "v6" ]; then
-        printf '  接入: 用户 -> [%s]:%s --(frp)--> %s:%s\n' "${PUBLIC_IP6:-公网IPv6}" "$rport" "$lip" "$lport"
-      else
-        ext="$(nat_external_for "$rport")"
-        [ -n "$ext" ] || ext="$rport"
-        printf '  接入: 用户 -> %s:%s --(NAT)--> VPS:%s --(frp)--> %s:%s\n' "${PUBLIC_IP:-公网IP}" "$ext" "$rport" "$lip" "$lport"
-      fi
-      ;;
-    http|https)
-      printf '  接入: 用户 -> http(s)://%s (经 frps 建站端口 %s)\n' "$6" "${VHOST_HTTP:-未启用}"
-      ;;
-    *)
-      printf '  接入: 隧道/点对点服务\n'
-      ;;
-  esac
-}
-
-svc_add_port() {
-  local type="$1" name lip lport rport remark
-  name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
-  hint_local
-  lport="$(ask '本机服务端口')"
-  valid_port "$lport" || { err "本地端口非法"; return 1; }
-  L_PORT="$lport"
-  ask_expose_ports "$name" || return 1
-  rport="$R_PORT"
-  remark="$(ask '备注(可留空)' '')"
-  svc_append "$name" "$type" "$lip" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 $type 服务: $name"
-  show_chain "$name" "$type" "$lip" "$lport" "$rport"
-}
-
-svc_add_vhost() {
-  local type="$1" name lip lport domains remark
-  name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
-  hint_local
-  lport="$(ask '本机服务端口' "$([ "$type" = http ] && echo 8096 || echo 443)")"
-  valid_port "$lport" || { err "本地端口非法"; return 1; }
-  domains="$(ask '自定义域名(多个用逗号分隔)')"
-  [ -n "$domains" ] || { err "域名不能为空"; return 1; }
-  [ -n "$VHOST_HTTP" ] || VHOST_HTTP="$lport"
-  if [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$VHOST_HTTP"; then
-    warn "建站端口 $VHOST_HTTP 还没有映射，请先在服务商网页端放行"
-    map_internal_port "$VHOST_HTTP" "HTTP建站"
-  fi
-  remark="$(ask '备注(可留空)' '')"
-  svc_append "$name" "$type" "$lip" "$lport" "" "$domains" "" "" "$remark"
-  ok "已添加 $type 服务: $name -> $domains"
-  show_chain "$name" "$type" "$lip" "$lport" "" "$domains"
-}
-
-svc_add_secret() {
-  local type="$1" name lip lport secret remark
-  name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
-  hint_local
-  lport="$(ask '本机服务端口')"
-  valid_port "$lport" || { err "本地端口非法"; return 1; }
-  secret="$(ask 'secretKey' "$(gen_token)")"
-  remark="$(ask '备注(可留空)' '')"
-  svc_append "$name" "$type" "$lip" "$lport" "" "" "$secret" "" "$remark"
-  ok "已添加 $type 服务: $name (需另一台 frpc 用 secretKey 访问)"
-}
-
-svc_add_tcpmux() {
-  local name lip lport domains mux remark
-  name="$(ask '代理名称' "$(svc_unique_name tcpmux)")"
-  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
-  hint_local
-  lport="$(ask '本机服务端口')"
-  valid_port "$lport" || { err "本地端口非法"; return 1; }
-  domains="$(ask 'customDomains(用于路由)')"
-  [ -n "$domains" ] || { err "customDomains 不能为空"; return 1; }
-  mux="$(ask 'multiplexer' 'httpconnect')"
-  remark="$(ask '备注(可留空)' '')"
-  svc_append "$name" "tcpmux" "$lip" "$lport" "" "$domains" "" "$mux" "$remark"
-  ok "已添加 tcpmux 服务: $name"
-}
-
-svc_preset_mc_java() {
-  local lport rport remark
-  hint_local
-  lport="$(ask '本机 MC 监听端口(server-port)' '25565')"
-  valid_port "$lport" || { err "端口非法"; return 1; }
-  L_PORT="$lport"
-  ask_expose_ports "MC Java" || return 1
-  rport="$R_PORT"
-  remark="$(ask '备注(可留空)' 'Minecraft Java')"
-  svc_append "$(svc_unique_name mc-java)" "tcp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Java"
-  show_chain mc-java tcp 127.0.0.1 "$lport" "$rport"
-}
-
-svc_preset_mc_bedrock() {
-  local lport rport remark
-  hint_local
-  lport="$(ask '本机 Bedrock 监听端口' '19132')"
-  valid_port "$lport" || { err "端口非法"; return 1; }
-  L_PORT="$lport"
-  ask_expose_ports "MC Bedrock" || return 1
-  rport="$R_PORT"
-  remark="$(ask '备注(可留空)' 'Minecraft Bedrock')"
-  svc_append "$(svc_unique_name mc-bedrock)" "udp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Bedrock"
-  show_chain mc-bedrock udp 127.0.0.1 "$lport" "$rport"
-}
-
-svc_preset_emby() {
-  local lport domains remark
-  hint_local
-  lport="$(ask 'Emby 本机端口' '8096')"
-  valid_port "$lport" || { err "端口非法"; return 1; }
-  domains="$(ask 'Emby 访问域名')"
-  [ -n "$domains" ] || { err "域名不能为空"; return 1; }
-  [ -n "$VHOST_HTTP" ] || VHOST_HTTP="$lport"
-  if [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$VHOST_HTTP"; then
-    warn "建站端口 $VHOST_HTTP 还没有映射，请先在服务商网页端放行"
-    map_internal_port "$VHOST_HTTP" "HTTP建站"
-  fi
-  remark="$(ask '备注(可留空)' 'Emby')"
-  svc_append "$(svc_unique_name emby)" "http" "127.0.0.1" "$lport" "" "$domains" "" "" "$remark"
-  ok "已添加 Emby (HTTP $lport -> $domains)"
-}
-
-svc_edit() {
-  svc_list || return 0
-  local n; n="$(ask '要编辑的序号(留空取消)')"
-  [ -n "$n" ] || return 0
-  is_uint "$n" || { err "序号非法"; return 1; }
-  local total; total="$(wc -l < "$SVC_FILE")"
-  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
-  local line name type lip lport rport domains secret mux remark v
-  line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
-  v="$(ask '名称' "$name")"; name="$v"
-  v="$(ask '本机服务地址' "$lip")"; lip="$v"
-  hint_local
-  case "$type" in
-    tcp|udp)
-      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
-      hint_remote
-      v="$(ask 'frps 内部远端端口 remotePort' "$rport")"; valid_port "$v" && rport="$v"
-      ;;
-    http|https)
-      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
-      v="$(ask '自定义域名' "$domains")"; domains="$v"
-      ;;
-    stcp|xtcp)
-      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
-      v="$(ask 'secretKey' "$secret")"; secret="$v"
-      ;;
-    tcpmux)
-      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
-      v="$(ask 'customDomains' "$domains")"; domains="$v"
-      v="$(ask 'multiplexer' "$mux")"; mux="$v"
-      ;;
-  esac
-  v="$(ask '备注' "$remark")"; remark="$v"
-  local newline="$name|$type|$lip|$lport|$rport|$domains|$secret|$mux|$remark"
-  local tmp; tmp="$(mktemp)"
-  awk -v n="$n" -v nl="$newline" 'NR==n{print nl; next}{print}' "$SVC_FILE" > "$tmp" && mv "$tmp" "$SVC_FILE"
-  if { [ "$type" = "tcp" ] || [ "$type" = "udp" ]; } && [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport"; then
-    warn "内部端口 $rport 还没有映射，请确认服务商网页端已放行"
-    map_internal_port "$rport" "$name"
-  fi
-  save_frps_config
-  save_client_configs
-  ok "已更新序号 $n"
-}
-
-svc_menu() {
-  while true; do
-    title "添加服务"
-    echo "  1) Minecraft Java (TCP 25565)"
-    echo "  2) Minecraft Bedrock (UDP 19132)"
-    echo "  3) Emby (HTTP 建站)"
-    echo "  4) 自定义 TCP"
-    echo "  5) 自定义 UDP"
-    echo "  6) 自定义 HTTP"
-    echo "  7) 自定义 HTTPS"
-    echo "  8) STCP 安全隧道"
-    echo "  9) XTCP 点对点"
-    echo " 10) TCPMUX"
-    echo " 11) 查看已添加"
-    echo " 12) 编辑服务"
-    echo " 13) 删除服务"
-    echo "  0) 完成返回"
-    local c; c="$(ask '请选择' '0')"
-    case "$c" in
-      1) svc_preset_mc_java ;;
-      2) svc_preset_mc_bedrock ;;
-      3) svc_preset_emby ;;
-      4) svc_add_port tcp ;;
-      5) svc_add_port udp ;;
-      6) svc_add_vhost http ;;
-      7) svc_add_vhost https ;;
-      8) svc_add_secret stcp ;;
-      9) svc_add_secret xtcp ;;
-      10) svc_add_tcpmux ;;
-      11) svc_list ;;
-      12) svc_edit ;;
-      13) svc_del ;;
-      0) return 0 ;;
-      *) warn "无效选项" ;;
-    esac
-  done
-}
-
-collect_allow_ports() {
-  {
-    awk -F'|' '$2!=""{print $2}' "$NAT_FILE" 2>/dev/null
-    awk -F'|' '$5!=""{print $5}' "$SVC_FILE" 2>/dev/null
-  } | grep -E '^[0-9]+$' | sort -n -u
-}
-
-gen_frps() {
-  echo "# frps 服务端配置 —— 在 VPS 上用 frps 启动"
-  echo "# 含 bindPort / allowPorts 等服务端字段，请勿用于 frpc"
-  echo "bindAddr = \"$BIND_ADDR\""
-  echo "bindPort = $BIND_PORT"
-  [ -n "$KCP_PORT" ] && echo "kcpBindPort = $KCP_PORT"
-  [ -n "$QUIC_PORT" ] && echo "quicBindPort = $QUIC_PORT"
-  echo "transport.tls.force = $TLS_FORCE"
-  echo "auth.method = \"token\""
-  [ -n "$TOKEN" ] && echo "auth.token = \"$TOKEN\""
-  if [ "$DASH_ENABLE" = true ]; then
-    echo "webServer.addr = \"$DASH_ADDR\""
-    echo "webServer.port = $DASH_PORT"
-    [ -n "$DASH_USER" ] && echo "webServer.user = \"$DASH_USER\""
-    [ -n "$DASH_PASS" ] && echo "webServer.password = \"$DASH_PASS\""
-  fi
-  [ -n "$VHOST_HTTP" ] && echo "vhostHTTPPort = $VHOST_HTTP"
-  [ -n "$VHOST_HTTPS" ] && echo "vhostHTTPSPort = $VHOST_HTTPS"
-  [ -n "$SUBDOMAIN_HOST" ] && echo "subDomainHost = \"$SUBDOMAIN_HOST\""
-  echo "maxPortsPerClient = $MAX_PORTS"
-  local ports; ports="$(collect_allow_ports)"
-  if [ -n "$ports" ]; then
-    echo "allowPorts = ["
-    local p
-    for p in $ports; do echo "  { single = $p },"; done
-    echo "]"
-  fi
-  echo "udpPacketSize = 1500"
-  echo "log.to = \"$LOG_TO\""
-  echo "log.level = \"$LOG_LEVEL\""
-}
-
-domains_to_toml() {
-  local d="$1" out="" x
-  IFS=',' read -ra arr <<< "$d"
-  for x in "${arr[@]}"; do
-    x="${x// /}"
-    [ -n "$x" ] && out="${out}\"${x}\", "
-  done
-  printf '[%s]' "${out%, }"
 }
 
 gen_frpc_header() {
-  local fam="$1" server_addr server_port ext
-  if [ "$fam" = "6" ]; then
-    server_addr="$PUBLIC_IP6"
-    server_port="$BIND_PORT"
-  else
-    server_addr="$PUBLIC_IP"
-    ext="$(nat_external_for "$BIND_PORT")"
-    if [ -n "$ext" ]; then
-      server_port="$ext"
-    else
-      server_port="$BIND_PORT"
-      warn "控制端口 $BIND_PORT 还没有登记外部端口，frpc 可能连不上 frps（请到服务商网页端放行后登记）"
-    fi
-  fi
-  [ -n "$server_addr" ] || server_addr="你的frps公网地址"
-  echo "# frpc 客户端配置 —— 在运行服务的机器上用 frpc 启动"
-  echo "# 仅含客户端字段；请勿加入 bindPort、allowPorts、webServer 等服务端字段"
-  echo "serverAddr = \"$server_addr\""
-  echo "serverPort = $server_port"
+  echo "# frpc 客户端配置（在内网机器上运行 frpc）"
+  echo "serverAddr = \"$(public_addr)\""
+  echo "serverPort = $CONTROL_OUT"
   echo "auth.method = \"token\""
   [ -n "$TOKEN" ] && echo "auth.token = \"$TOKEN\""
   echo "transport.tls.enable = true"
@@ -775,137 +416,86 @@ gen_frpc_header() {
 }
 
 gen_frpc() {
-  local fam="${1:-4}" i n
-  gen_frpc_header "$fam"
-  n="$(wc -l < "$SVC_FILE" 2>/dev/null || echo 0)"
-  i=1
-  while [ "$i" -le "$n" ]; do
-    gen_frpc_proxy "$i"
-    echo
-    i=$((i + 1))
-  done
+  local i n
+  gen_frpc_header
+  n="$(svc_count)"; i=1
+  while [ "$i" -le "$n" ]; do gen_frpc_proxy "$i"; echo; i=$((i + 1)); done
 }
 
 gen_frpc_single() {
-  local fam="${1:-4}" n="$2"
-  gen_frpc_header "$fam"
-  gen_frpc_proxy "$n"
+  gen_frpc_header
+  gen_frpc_proxy "$1"
   echo
 }
 
+gen_frps() {
+  echo "# frps 服务端配置（在 VPS 上运行 frps）"
+  echo "bindAddr = \"0.0.0.0\""
+  echo "bindPort = $CONTROL_IN"
+  echo "auth.method = \"token\""
+  [ -n "$TOKEN" ] && echo "auth.token = \"$TOKEN\""
+  local ports
+  ports="$(awk -F'|' '($2=="tcp"||$2=="udp") && $5!=""{print $5}' "$SVC_FILE" 2>/dev/null | grep -E '^[0-9]+$' | sort -n -u)"
+  if [ -n "$ports" ]; then
+    echo "allowPorts = ["
+    local p
+    for p in $ports; do echo "  { single = $p },"; done
+    echo "]"
+  fi
+}
 
 print_block() {
   local name="$1" content="$2"
-  title "$name (可直接复制)"
+  title "$name"
   hr
   printf '%s\n' "$content"
   hr
 }
 
-save_frps_config() {
-  mkdir -p "$STATE_DIR" 2>/dev/null
-  gen_frps > "$FRPS_CONF"
-  ok "已写入 $FRPS_CONF"
+save_frps_config() { mkdir -p "$STATE_DIR" 2>/dev/null; gen_frps > "$FRPS_CONF"; }
+save_client_configs() { mkdir -p "$CLIENT_DIR" 2>/dev/null; gen_frpc > "$CLIENT_DIR/frpc.toml"; }
+
+control_menu() {
+  title "设置 frps 控制"
+  printf '  控制端口是 frpc 连接 frps 的入口，与具体服务无关。\n' >&2
+  printf '  内部端口在 VPS 上监听；对外端口由服务商网页端映射，frpc 用它连接。\n' >&2
+  local v
+  v="$(ask 'frps 内部端口 bindPort' "$CONTROL_IN")"
+  valid_port "$v" && CONTROL_IN="$v"
+  v="$(ask '控制端口对外映射(frpc 连接用)' "$CONTROL_OUT")"
+  valid_port "$v" && CONTROL_OUT="$v"
+  v="$(ask 'auth token(留空自动生成)' "$TOKEN")"
+  [ -n "$v" ] || v="$(gen_token)"
+  TOKEN="$v"
+  save_state
+  ok "已保存控制设置: 内部 $CONTROL_IN / 对外 $CONTROL_OUT"
 }
 
-save_client_configs() {
-  mkdir -p "$CLIENT_DIR" 2>/dev/null
-  case "$EXPOSE_MODE" in
-    v4) gen_frpc 4 > "$CLIENT_DIR/frpc-v4.toml"; ok "已写入 $CLIENT_DIR/frpc-v4.toml" ;;
-    v6) gen_frpc 6 > "$CLIENT_DIR/frpc-v6.toml"; ok "已写入 $CLIENT_DIR/frpc-v6.toml" ;;
-    both)
-      gen_frpc 4 > "$CLIENT_DIR/frpc-v4.toml"
-      gen_frpc 6 > "$CLIENT_DIR/frpc-v6.toml"
-      ok "已写入 $CLIENT_DIR/frpc-v4.toml 与 frpc-v6.toml"
-      ;;
-  esac
-}
-
-port_listening() {
-  ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$"
-}
-
-http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$1" 2>/dev/null; }
-
-run_selftest() {
-  title "自检"
-  local pass=0 fail=0 code
-  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-    ok "frps 进程运行中"; pass=$((pass + 1))
-  else
-    err "frps 未运行"; fail=$((fail + 1))
-  fi
-  if port_listening "$BIND_PORT"; then
-    ok "控制端口 $BIND_PORT 正在监听"; pass=$((pass + 1))
-  else
-    err "控制端口 $BIND_PORT 未监听"; fail=$((fail + 1))
-  fi
-  if [ "$DASH_ENABLE" = true ]; then
-    code="$(http_code "http://127.0.0.1:$DASH_PORT")"
-    if [ -n "$code" ] && [ "$code" != "000" ]; then
-      ok "面板可访问 (HTTP $code)"; pass=$((pass + 1))
-    else
-      warn "面板未响应"; fail=$((fail + 1))
-    fi
-  fi
-  hr
-  if [ "$fail" = 0 ]; then ok "自检通过 ($pass 项)"; else warn "自检完成: $pass 项通过, $fail 项异常"; fi
-}
-
-show_status() {
-  title "服务端状态"
-  printf '  %-12s %s\n' "昵称" "$NICKNAME"
-  printf '  %-12s %s\n' "对外方式" "$EXPOSE_MODE"
-  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-    ok "frps 运行中 (PID $(pgrep -f '/usr/local/bin/frps' | head -1))"
-  else
-    warn "frps 未运行"
-  fi
-  if port_listening "$BIND_PORT"; then ok "控制端口 $BIND_PORT 监听中"; else warn "控制端口 $BIND_PORT 未监听"; fi
-  list_services
-}
-
-list_services() {
-  title "服务列表"
-  if [ ! -s "$SVC_FILE" ]; then
-    warn "暂无服务"
-    return 0
-  fi
-  printf '  %-4s %-14s %-6s %-24s %-10s %s\n' "序号" "名称" "类型" "用户访问地址" "状态" "备注"
-  hr
-  local i=0 name type lip lport rport domains secret mux remark access state ext
-  while IFS='|' read -r name type lip lport rport domains secret mux remark; do
-    [ -n "$name" ] || continue
-    i=$((i + 1))
-    case "$type" in
-      tcp|udp)
-        ext="$(nat_external_for "$rport")"
-        if [ "$EXPOSE_MODE" = "v6" ]; then
-          access="[${PUBLIC_IP6:-?}]:$rport"; state="直连"
-        elif [ -n "$ext" ]; then
-          access="${PUBLIC_IP:-?}:$ext"; state="已登记"
-        else
-          access="${PUBLIC_IP:-?}:$rport"; state="未登记"
-        fi
-        ;;
-      http|https)
-        access="$domains"; state="建站:$VHOST_HTTP"
-        ;;
-      *)
-        access="-"; state="隧道"
-        ;;
+preview_menu() {
+  while true; do
+    [ -t 1 ] && clear
+    draw_header
+    printf '\n  1) 预览 frps.toml\n'
+    printf '  2) 预览 frpc.toml\n'
+    printf '  3) 保存到文件\n'
+    printf '  0) 返回\n'
+    local c; c="$(ask '请选择' '0')"
+    printf '\n'
+    case "$c" in
+      1) print_block "frps.toml" "$(gen_frps)" ;;
+      2) print_block "frpc.toml" "$(gen_frpc)" ;;
+      3) save_frps_config; save_client_configs; ok "已保存: $FRPS_CONF 与 $CLIENT_DIR/frpc.toml" ;;
+      0) return 0 ;;
+      *) warn "无效选项" ;;
     esac
-    printf '  %-4s %-14s %-6s %-24s %-10s %s\n' "$i" "$name" "$type" "$access" "$state" "$remark"
-  done < "$SVC_FILE"
+    pause_key
+  done
 }
 
 arch_name() {
   case "$(uname -m)" in
-    x86_64|amd64) echo amd64;;
-    aarch64|arm64) echo arm64;;
-    armv7l|armv7) echo arm;;
-    i386|i686) echo 386;;
-    *) echo "";;
+    x86_64|amd64) echo amd64;; aarch64|arm64) echo arm64;;
+    armv7l|armv7) echo arm;; i386|i686) echo 386;; *) echo "";;
   esac
 }
 
@@ -929,8 +519,7 @@ download_frp() {
       tar -xzf "$tmp/$base" -C "$tmp" 2>/dev/null || { warn "解压失败"; continue; }
       dir="$(find "$tmp" -maxdepth 1 -type d -name "frp_${ver}_linux_${arch}" | head -1)"
       [ -n "$dir" ] || { warn "未找到解压目录"; continue; }
-      printf '%s' "$dir"
-      return 0
+      printf '%s' "$dir"; return 0
     fi
   done
   return 1
@@ -942,22 +531,15 @@ install_frps() {
   local arch; arch="$(arch_name)"
   [ -n "$arch" ] || die "不支持的架构: $(uname -m)"
   local ver="$FRP_VERSION"
-  if [ -z "$ver" ]; then
-    info "查询最新 frp 版本..."
-    ver="$(latest_frp_version)"
-  fi
+  [ -n "$ver" ] || { info "查询最新 frp 版本..."; ver="$(latest_frp_version)"; }
   [ -n "$ver" ] || ver="$(ask '请输入 frp 版本号(如 0.61.1)')"
   [ -n "$ver" ] || die "未指定 frp 版本"
-  FRP_VERSION="$ver"
-  save_state
-
-  local dir; dir="$(download_frp "$ver" "$arch")" || die "frp 下载失败，请检查网络或手动安装"
+  FRP_VERSION="$ver"; save_state
+  local dir; dir="$(download_frp "$ver" "$arch")" || die "frp 下载失败"
   install -m 0755 "$dir/frps" /usr/local/bin/frps || die "安装 frps 失败"
   rm -rf "$(dirname "$dir")"
-  ok "frps 已安装到 /usr/local/bin/frps (v$ver)"
-
+  ok "frps 已安装 (v$ver)"
   save_frps_config
-
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     cat > /etc/systemd/system/frps.service <<EOF
 [Unit]
@@ -979,21 +561,13 @@ EOF
     systemctl enable frps >/dev/null 2>&1
     systemctl restart frps
     sleep 1
-    if systemctl is-active --quiet frps; then
-      ok "frps 已通过 systemd 启动"
-    else
-      err "frps 启动失败，请查看: journalctl -u frps -e"
-    fi
+    if systemctl is-active --quiet frps; then ok "frps 已启动"; else err "frps 启动失败，查看: journalctl -u frps -e"; fi
   else
     warn "未检测到 systemd，使用 nohup 启动"
     pkill -f '/usr/local/bin/frps' 2>/dev/null || true
     nohup /usr/local/bin/frps -c "$FRPS_CONF" >"$STATE_DIR/frps.log" 2>&1 &
     sleep 1
-    if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-      ok "frps 已在后台启动，日志: $STATE_DIR/frps.log"
-    else
-      err "frps 启动失败"
-    fi
+    pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1 && ok "frps 已后台启动" || err "frps 启动失败"
   fi
 }
 
@@ -1009,298 +583,70 @@ service_ctl() {
     stop) systemctl stop frps && ok "已停止";;
     logs) journalctl -u frps -e --no-pager;;
     uninstall)
-      systemctl stop frps 2>/dev/null
-      systemctl disable frps 2>/dev/null
-      rm -f /etc/systemd/system/frps.service
-      systemctl daemon-reload
+      systemctl stop frps 2>/dev/null; systemctl disable frps 2>/dev/null
+      rm -f /etc/systemd/system/frps.service; systemctl daemon-reload
       rm -f /usr/local/bin/frps
-      ok "已卸载 frps 服务与二进制(配置保留在 $STATE_DIR)"
-      ;;
+      ok "已卸载 frps（配置保留在 $STATE_DIR）";;
   esac
 }
 
-self_install() {
-  require_root
-  local target="/usr/local/bin/$APP" src=""
-  if [ -f "$0" ]; then
-    src="$0"
-  elif [ -n "$SELF_URL" ]; then
-    info "从 $SELF_URL 下载脚本..."
-    local tmp; tmp="$(mktemp)"
-    curl -fsSL --connect-timeout 10 --max-time 60 "$SELF_URL" -o "$tmp" || die "下载失败，请检查 SELF_URL"
-    src="$tmp"
-  else
-    die "无法获取脚本来源，请先保存脚本后执行: bash autof.sh self-install"
-  fi
-  if [ "$(readlink -f "$src")" = "$target" ]; then
-    ok "已经安装在 $target"
-    return 0
-  fi
-  install -m 0755 "$src" "$target" || die "安装失败"
-  ok "已安装为命令: $target"
-  info "以后直接运行: $APP"
-}
-
-self_update() {
-  require_root
-  [ -n "$SELF_URL" ] || die "未设置 SELF_URL"
-  local target="/usr/local/bin/$APP" tmp
-  tmp="$(mktemp)"
-  info "更新中: $SELF_URL"
-  curl -fsSL --connect-timeout 10 --max-time 60 "$SELF_URL" -o "$tmp" || die "下载失败"
-  bash -n "$tmp" || die "下载的脚本语法校验失败，已放弃更新"
-  install -m 0755 "$tmp" "$target" || die "写入失败"
-  rm -f "$tmp"
-  ok "已更新到最新版本: $target"
-}
-
-maybe_install_prompt() {
-  local target="/usr/local/bin/$APP"
-  [ "$(id -u)" = "0" ] || return 0
-  if [ -f "$0" ] && [ "$(readlink -f "$0")" = "$target" ]; then return 0; fi
-  if [ ! -f "$0" ] && [ -z "$SELF_URL" ]; then return 0; fi
-  if confirm "是否把本脚本安装为命令 $APP (方便以后直接运行)?"; then
-    self_install
-  fi
-}
-
-wizard_expose() {
-  step "第 1 步 / 选择对外方式"
-  if [ "$AVAIL_V4" = 1 ] && [ "$AVAIL_V6" = 1 ]; then
-    echo "  检测到 IPv4 与 IPv6 都可用:"
-    echo "    1) 仅 IPv4 (走 NAT 端口映射)"
-    echo "    2) 仅 IPv6 (公网直连，无需映射)"
-    echo "    3) 两者都要"
-    local c; c="$(ask '请选择' '1')"
-    case "$c" in 2) EXPOSE_MODE="v6";; 3) EXPOSE_MODE="both";; *) EXPOSE_MODE="v4";; esac
-  elif [ "$AVAIL_V4" = 1 ]; then
-    EXPOSE_MODE="v4"; info "仅检测到 IPv4，使用 NAT 端口映射模式"
-  elif [ "$AVAIL_V6" = 1 ]; then
-    EXPOSE_MODE="v6"; info "仅检测到 IPv6，使用公网直连模式"
-  else
-    EXPOSE_MODE="v4"; warn "未检测到可用公网出口，按 IPv4 模式配置，稍后请手动填写地址"
-  fi
-  case "$EXPOSE_MODE" in
-    v4) BIND_ADDR="0.0.0.0";;
-    v6|both) BIND_ADDR="::";;
-  esac
-  save_state
-}
-
-wizard_ports() {
-  step "第 2 步 / 端口设置"
-  local v
-  hint_control
-  v="$(ask 'frps 控制端口 bindPort(VPS 内部监听)' "$BIND_PORT")"
-  valid_port "$v" && BIND_PORT="$v"
-  if [ "$EXPOSE_MODE" = "v6" ]; then
-    info "IPv6 直连无需端口映射，客户端直接用 [公网IPv6]:$BIND_PORT"
-  else
-    warn "端口映射由你在服务商网页控制台设置，本脚本只做登记"
-    map_internal_port "$BIND_PORT" "frps控制端口"
-  fi
-  save_state
-}
-
-wizard_auth() {
-  step "第 3 步 / 认证"
-  local t
-  t="$(ask 'auth token(留空自动生成)' "$TOKEN")"
-  [ -n "$t" ] || t="$(gen_token)"
-  TOKEN="$t"
-  ok "token: $TOKEN"
-  if confirm "强制 TLS 加密(推荐)?"; then TLS_FORCE=true; else TLS_FORCE=false; fi
-  save_state
-}
-
-wizard_serverinfo() {
-  step "第 4 步 / 服务端信息"
-  NICKNAME="$(ask '给这台服务端起个昵称' "$NICKNAME")"
-  if confirm "启用 Dashboard 面板?"; then
-    DASH_ENABLE=true
-    printf '    · 面板端口：VPS 上访问 frps 管理面板的端口（浏览器打开 http://VPS:端口）\n' >&2
-    DASH_PORT="$(ask '面板端口(VPS 内部监听)' "$DASH_PORT")"
-    DASH_USER="$(ask '面板用户名' "$DASH_USER")"
-    DASH_PASS="$(ask '面板密码' "${DASH_PASS:-$(gen_token)}")"
-    [ "$EXPOSE_MODE" != "v6" ] && map_internal_port "$DASH_PORT" "面板"
-  else
-    DASH_ENABLE=false
-  fi
-  if confirm "启用 HTTP 建站(Emby 等域名访问)?"; then
-    printf '    · 建站端口 vhostHTTPPort：frps 接收 HTTP 请求的端口，域名访问走它\n' >&2
-    VHOST_HTTP="$(ask 'vhostHTTPPort(VPS 内部监听)' "${VHOST_HTTP:-8096}")"
-    SUBDOMAIN_HOST="$(ask '主域名(留空不使用子域名)' "$SUBDOMAIN_HOST")"
-    [ "$EXPOSE_MODE" != "v6" ] && map_internal_port "$VHOST_HTTP" "HTTP建站"
-  fi
-  save_state
-}
-
-wizard_services() {
-  step "第 5 步 / 添加要穿透的服务"
-  info "按提示添加服务，完成后选 0 返回"
-  printf '    端口说明：本机端口=你服务实际监听；远端端口=VPS 上 frps 监听；外部端口=公网用户连接\n' >&2
-  svc_menu
-  if [ ! -s "$SVC_FILE" ]; then warn "还没有添加任何服务"; fi
-  save_state
-}
-
-wizard_review() {
-  step "第 6 步 / 确认配置"
-  printf '  %-12s %s\n' "昵称" "$NICKNAME"
-  printf '  %-12s %s\n' "对外方式" "$EXPOSE_MODE"
-  printf '  %-12s %s\n' "控制端口" "$BIND_PORT"
-  printf '  %-12s %s\n' "token" "$TOKEN"
-  printf '  %-12s %s\n' "面板" "$([ "$DASH_ENABLE" = true ] && echo "开启($DASH_PORT)" || echo 关闭)"
-  hr
-  nat_list
-  svc_list
-  hr
-  confirm "确认以上配置正确吗?"
-}
-
-wizard_generate() {
-  step "第 7 步 / 生成配置"
-  print_block "frps.toml" "$(gen_frps)"
-  case "$EXPOSE_MODE" in
-    v4) print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)" ;;
-    v6) print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)" ;;
-    both)
-      print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)"
-      print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)"
-      ;;
-  esac
-  save_frps_config
-  save_client_configs
-}
-
-wizard() {
-  load_state
-  title "Autofrp 配置向导"
-  detect_env
-  save_state
-  print_env_report
-
-  if [ -s "$SVC_FILE" ]; then
-    if confirm "检测到已有服务配置，是否清空重新开始?"; then
-      : > "$SVC_FILE"
-      : > "$NAT_FILE"
-      ok "已清空旧配置"
-    fi
-  fi
-
-  wizard_expose
-  wizard_ports
-  wizard_auth
-  wizard_serverinfo
-  wizard_services
-
-  if ! wizard_review; then
-    warn "已取消，配置未保存"
-    return 1
-  fi
-  save_state
-
-  wizard_generate
-
-  if confirm "现在安装并启动 frps 服务端吗?"; then
-    install_frps
-    run_selftest
-  fi
-
-  show_status
-  echo
-  ok "配置完成。以后输入 autof 可进入主界面。"
-  maybe_install_prompt
-}
-
-RULE_LINE="$(printf '═%.0s' {1..62})"
-
-draw_header() {
-  local st
-  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-    st="运行中 (PID $(pgrep -f '/usr/local/bin/frps' | head -1))"
-  else
-    st="已停止"
-  fi
-  printf '%s\n' "$RULE_LINE"
-  printf '  Autofrp  ·  frps 服务端管理\n'
-  printf '%s\n' "$RULE_LINE"
-  printf '  IPv4   %s  %s\n' "${V4_STATUS:-未探测}" "${PUBLIC_IP:-}"
-  printf '  IPv6   %s  %s\n' "${V6_STATUS:-未探测}" "${PUBLIC_IP6:-}"
-  printf '  状态   %s\n' "$st"
-  printf '  昵称   %s\n' "${NICKNAME:-未设置}"
-  printf '%s\n' "$RULE_LINE"
-}
-
-pause_key() {
-  [ -t 0 ] || return 0
-  read -rp "按回车返回..." _ || true
-}
-
-preview_frpc() {
-  case "$EXPOSE_MODE" in
-    v4) print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)" ;;
-    v6) print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)" ;;
-    both)
-      print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)"
-      print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)"
-      ;;
-    *) print_block "frpc.toml" "$(gen_frpc 4)" ;;
-  esac
-}
-
-config_new() {
-  if [ -s "$SVC_FILE" ] || [ -n "$TOKEN" ]; then
-    printf '\n  1) 完整配置 (重设服务端 + 服务)\n'
-    printf '  2) 仅添加服务\n'
-    local c; c="$(ask '请选择' '2')"
-    case "$c" in
-      1) wizard ;;
-      *)
-        svc_menu
-        save_state
-        save_frps_config
-        save_client_configs
-        confirm "重启服务端以生效?" && service_ctl restart
-        ;;
-    esac
-  else
-    wizard
-  fi
-}
-
-view_menu() {
+server_menu() {
   while true; do
     [ -t 1 ] && clear
     draw_header
-    list_services
-    printf '\n  1) 选择服务：查看详情与 TOML\n'
-    printf '  2) 编辑服务\n'
-    printf '  3) 删除服务\n'
-    printf '  4) 预览 frps.toml\n'
-    printf '  5) 预览 frpc.toml\n'
-    printf '  6) 停止服务端\n'
-    printf '  7) 重启服务端\n'
-    printf '  8) 查看日志\n'
-    printf '  9) 运行自检\n'
+    printf '\n  1) 安装/更新并启动\n'
+    printf '  2) 停止\n'
+    printf '  3) 重启\n'
+    printf '  4) 状态\n'
+    printf '  5) 日志\n'
+    printf '  6) 卸载\n'
     printf '  0) 返回\n'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
     case "$c" in
-      1) svc_detail ;;
-      2) svc_edit ;;
-      3) svc_del ;;
-      4) print_block "frps.toml" "$(gen_frps)" ;;
-      5) preview_frpc ;;
-      6) service_ctl stop ;;
-      7) service_ctl restart ;;
-      8) service_ctl logs ;;
-      9) run_selftest ;;
+      1) install_frps ;;
+      2) service_ctl stop ;;
+      3) service_ctl restart ;;
+      4) service_ctl status ;;
+      5) service_ctl logs ;;
+      6) service_ctl uninstall ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
     pause_key
   done
+}
+
+self_install() {
+  require_root
+  local target="/usr/local/bin/$APP" src=""
+  if [ -f "$0" ]; then src="$0"
+  elif [ -n "$SELF_URL" ]; then
+    local tmp; tmp="$(mktemp)"
+    curl -fsSL --connect-timeout 10 --max-time 60 "$SELF_URL" -o "$tmp" || die "下载失败"
+    src="$tmp"
+  else die "无法获取脚本来源"; fi
+  [ "$(readlink -f "$src")" = "$target" ] && { ok "已安装在 $target"; return 0; }
+  install -m 0755 "$src" "$target" || die "安装失败"
+  ok "已安装为命令: $target"
+}
+
+self_update() {
+  require_root
+  [ -n "$SELF_URL" ] || die "未设置 SELF_URL"
+  local tmp; tmp="$(mktemp)"
+  curl -fsSL --connect-timeout 10 --max-time 60 "$SELF_URL" -o "$tmp" || die "下载失败"
+  bash -n "$tmp" || die "下载的脚本语法校验失败"
+  install -m 0755 "$tmp" "/usr/local/bin/$APP" || die "写入失败"
+  rm -f "$tmp"
+  ok "已更新到最新版本"
+}
+
+maybe_install_prompt() {
+  [ "$(id -u)" = "0" ] || return 0
+  [ -f "$0" ] && [ "$(readlink -f "$0")" = "/usr/local/bin/$APP" ] && return 0
+  [ ! -f "$0" ] && [ -z "$SELF_URL" ] && return 0
+  confirm "是否安装为命令 $APP (以后直接运行)?" && self_install
 }
 
 main_screen() {
@@ -1310,33 +656,22 @@ main_screen() {
   while true; do
     [ -t 1 ] && clear
     draw_header
-    printf '\n  1) 配置新服务\n'
-    printf '  2) 查看当前服务\n'
+    if [ -z "$CONTROL_OUT" ]; then
+      warn "尚未设置 frps 控制端口，请先完成设置"
+      control_menu
+      [ -z "$CONTROL_OUT" ] && { warn "未设置控制端口，退出"; return 1; }
+    fi
+    printf '\n  1) 设置 frps 控制\n'
+    printf '  2) 服务管理\n'
+    printf '  3) 预览/生成配置\n'
+    printf '  4) 服务端控制\n'
     printf '  0) 退出\n'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
-      1) config_new ;;
-      2) view_menu ;;
-      0) return 0 ;;
-      *) warn "无效选项" ;;
-    esac
-  done
-}
-
-nat_menu() {
-  while true; do
-    title "NAT 端口映射登记 (先在服务商网页端设置好，再填这里)"
-    echo "  1) 登记一条映射 (外部 -> 内部)"
-    echo "  2) 查看已登记映射"
-    echo "  3) 删除登记"
-    echo "  4) 检查 frps 端口是否都已登记"
-    echo "  0) 返回"
-    local c; c="$(ask '请选择' '0')"
-    case "$c" in
-      1) nat_add ;;
-      2) nat_list ;;
-      3) nat_del ;;
-      4) nat_autofill ;;
+      1) control_menu ;;
+      2) svc_menu ;;
+      3) preview_menu ;;
+      4) server_menu ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -1348,20 +683,15 @@ usage() {
 $APP - NAT 小鸡 frps 一键工具
 
 用法:
-  $APP                 主界面(推荐)
-  $APP wizard          配置向导
-  $APP detect          仅探测本机网络环境
-  $APP list            查看服务列表与状态
-  $APP status          查看服务端状态
-  $APP nat             登记 NAT 端口映射
+  $APP                 主界面
+  $APP list            查看服务列表
   $APP gen frps        打印 frps.toml
-  $APP gen frpc        打印 frpc.toml(客户端)
-  $APP save            保存 frps.toml 与 frpc.toml
-  $APP install         下载安装 frps 并注册 systemd
+  $APP gen frpc        打印 frpc.toml
+  $APP install         安装并启动 frps
   $APP status|restart|stop|logs|uninstall
   $APP self-install    安装为 /usr/local/bin/$APP
-  $APP self-update     从 SELF_URL 拉取并更新自身
-  $APP help            显示本帮助
+  $APP self-update     更新脚本自身
+  $APP help            显示帮助
 
 配置目录: $STATE_DIR
 EOF
@@ -1370,23 +700,18 @@ EOF
 main() {
   case "${1:-}" in
     "") main_screen ;;
-    wizard) wizard ;;
     menu|manage) main_screen ;;
-    detect) load_state; detect_env; save_state; print_env_report ;;
-    list) load_state; list_services ;;
-    status) load_state; show_status ;;
-    nat) load_state; nat_menu ;;
+    list) load_state; svc_list ;;
     gen)
       load_state
       case "${2:-frps}" in
         frps) gen_frps ;;
-        frpc) gen_frpc "${3:-4}" ;;
+        frpc) gen_frpc ;;
         *) die "未知类型: ${2:-}" ;;
       esac
       ;;
-    save) load_state; save_frps_config; save_client_configs ;;
     install) install_frps ;;
-    restart|stop|logs|uninstall) service_ctl "$1" ;;
+    status|restart|stop|logs|uninstall) service_ctl "$1" ;;
     self-install) self_install ;;
     self-update) self_update ;;
     help|-h|--help) usage ;;
