@@ -34,10 +34,10 @@ sudo autof
 ════════════════════════════════════════════════════════════
   Autofrp  ·  frps 服务端
 ════════════════════════════════════════════════════════════
-  IPv4   NAT IPv4  108.165.122.146
-  IPv6   NAT IPv6  2602:f9f3:3000::185
-  frps   运行中 / 已停止
-  控制端口 30085
+  IPv4  NAT IPv4  108.165.122.146 ◀ 首选
+  IPv6  NAT IPv6  2602:f9f3:3000::185 (备选)
+  状态  ● 运行中
+  控制端口 30085    网络偏好 均可
 ════════════════════════════════════════════════════════════
 
   1) 添加服务
@@ -52,9 +52,21 @@ sudo autof
 - **添加服务**：`Minecraft Java` / `Minecraft Bedrock` / `Emby` / `自定义 TCP` / `自定义 UDP`。填「本机端口」和「对外端口」即可，加完直接告诉你玩家连接地址。
 - **查看服务**：列表 → 输入序号看详情与该服务完整 `frpc.toml`，可编辑/删除。
 - **安装/启动 frps**：自动下载 frps（GitHub + 镜像回退）并注册 systemd 启动。
-- **服务端控制**：停止、重启、状态、日志、修改控制端口。
+- **服务端控制**：停止、重启、状态、日志、修改控制端口、网络偏好。
 - **预览配置**：`frps.toml` / `frpc.toml` / 保存到文件。
 - **卸载**：完全卸载（服务 + 程序 + 配置 + `autof` 命令）。
+
+## 网络偏好（IPv4 / IPv6 / 均可）
+
+在「服务端控制 → 网络偏好」或命令行设置，会同时影响 `frps` 监听与 `frpc` 连接地址：
+
+| 偏好 | `frps` 的 `bindAddr` | `frpc` 的 `serverAddr` |
+| --- | --- | --- |
+| 仅 IPv4 | `0.0.0.0` | IPv4 公网地址 |
+| 仅 IPv6 | `::` | IPv6 公网地址 |
+| 均可 | `::`（双栈） | 优先 IPv4，并注释一行 IPv6 备选 |
+
+> 「均可」的双栈监听依赖内核 `net.ipv6.bindv6only=0`（Linux 默认）。
 
 ## 完整示例：Minecraft 内网穿透
 
@@ -114,6 +126,7 @@ sudo autof list         # 服务列表
 sudo autof gen frps     # 打印 frps.toml
 sudo autof gen frpc     # 打印 frpc.toml
 sudo autof install      # 安装并启动 frps
+sudo autof net 4        # 网络偏好：仅 IPv4（6=仅 IPv6，both=均可）
 sudo autof status       # 运行状态
 sudo autof restart      # 重启
 sudo autof stop         # 停止
