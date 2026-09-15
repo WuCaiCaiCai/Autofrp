@@ -451,9 +451,11 @@ svc_detail() {
     http|https) printf '  %-10s %s\n' "访问域名" "$domains";;
   esac
   [ -n "$remark" ] && printf '  %-10s %s\n' "备注" "$remark"
-  show_chain "$name" "$type" "$lip" "$lport" "$rport"
+  show_chain "$name" "$type" "$lip" "$lport" "$rport" "$domains"
   printf '\n'
-  print_block "该服务的 frpc.toml 片段" "$(gen_frpc_proxy "$n")"
+  local fam=4
+  [ "$EXPOSE_MODE" = "v6" ] && fam=6
+  print_block "该服务的完整 frpc.toml" "$(gen_frpc_single "$fam" "$n")"
 }
 
 nat_external_owner() {
@@ -746,15 +748,20 @@ domains_to_toml() {
   printf '[%s]' "${out%, }"
 }
 
-gen_frpc() {
-  local fam="${1:-4}" server_addr server_port
+gen_frpc_header() {
+  local fam="$1" server_addr server_port ext
   if [ "$fam" = "6" ]; then
     server_addr="$PUBLIC_IP6"
     server_port="$BIND_PORT"
   else
     server_addr="$PUBLIC_IP"
-    server_port="$(nat_external_for "$BIND_PORT")"
-    [ -n "$server_port" ] || server_port="$BIND_PORT"
+    ext="$(nat_external_for "$BIND_PORT")"
+    if [ -n "$ext" ]; then
+      server_port="$ext"
+    else
+      server_port="$BIND_PORT"
+      warn "控制端口 $BIND_PORT 还没有登记外部端口，frpc 可能连不上 frps（请到服务商网页端放行后登记）"
+    fi
   fi
   [ -n "$server_addr" ] || server_addr="你的frps公网地址"
   echo "# frpc 客户端配置 —— 在运行服务的机器上用 frpc 启动"
@@ -765,7 +772,11 @@ gen_frpc() {
   [ -n "$TOKEN" ] && echo "auth.token = \"$TOKEN\""
   echo "transport.tls.enable = true"
   echo
-  local i n
+}
+
+gen_frpc() {
+  local fam="${1:-4}" i n
+  gen_frpc_header "$fam"
   n="$(wc -l < "$SVC_FILE" 2>/dev/null || echo 0)"
   i=1
   while [ "$i" -le "$n" ]; do
@@ -774,6 +785,14 @@ gen_frpc() {
     i=$((i + 1))
   done
 }
+
+gen_frpc_single() {
+  local fam="${1:-4}" n="$2"
+  gen_frpc_header "$fam"
+  gen_frpc_proxy "$n"
+  echo
+}
+
 
 print_block() {
   local name="$1" content="$2"
