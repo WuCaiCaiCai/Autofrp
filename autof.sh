@@ -721,6 +721,7 @@ main_screen() {
     printf '  3) 预览/生成配置\n'
     printf '  4) 服务端控制\n'
     printf '  5) 接入检查\n'
+    printf '  6) 卸载 Autofrp(删除服务/程序/配置/本命令)\n'
     printf '  0) 退出\n'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
@@ -729,6 +730,7 @@ main_screen() {
       3) preview_menu ;;
       4) server_menu ;;
       5) check_access; pause_key ;;
+      6) uninstall_all && return 0 ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
