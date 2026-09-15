@@ -375,6 +375,9 @@ gen_frpc_proxy() {
   IFS='|' read -r name type lip lport remote external dom sec mux rem <<< "$line"
   [ -n "$name" ] || return 1
   [ -n "$rem" ] && echo "# $rem"
+  if [ "$type" = "tcp" ] || [ "$type" = "udp" ]; then
+    echo "# 玩家连接: $(public_addr):$external   (frps 监听 $remote，服务商映射 外部 $external -> 内部 $remote)"
+  fi
   echo "[[proxies]]"
   echo "name = \"$name\""
   echo "type = \"$type\""
