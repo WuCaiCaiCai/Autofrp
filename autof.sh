@@ -63,6 +63,22 @@ valid_port() {
 
 gen_token() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 24; }
 
+hint_control() {
+  printf '    · 控制端口 bindPort：frpc(家里电脑) 连接 frps 的入口，外网必须能访问\n' >&2
+  printf '      它在 VPS 内部监听，需在服务商网页端把某个外部端口映射到它\n' >&2
+}
+hint_local() {
+  printf '    · 本机端口 localPort：你家里服务实际监听的端口（如 MC 的 25565）\n' >&2
+}
+hint_remote() {
+  printf '    · 远端端口 remotePort：frps 在 VPS 上监听的端口，外网经「外部端口」访问它\n' >&2
+  printf '      只需 VPS 上不冲突，可以和本机端口不同\n' >&2
+}
+hint_external() {
+  printf '    · 外部端口：公网用户实际连接的端口，由服务商网页端映射而来\n' >&2
+  printf '      映射关系：外部端口 -> 内部端口\n' >&2
+}
+
 load_state() {
   NICKNAME="我的 frps"
   EXPOSE_MODE="v4"
@@ -271,9 +287,11 @@ nat_list() {
 nat_add() {
   local ext int label
   info "外部端口请先在服务商网页控制台做好转发，这里只登记对应关系"
-  ext="$(ask '外部端口(服务商网页端设置的公网端口)')"
+  hint_external
+  ext="$(ask '外部端口(公网，服务商网页端设置)')"
   valid_port "$ext" || { err "外部端口非法"; return 1; }
-  int="$(ask '内部端口(本机监听)')"
+  printf '    · 内部端口：VPS 上实际监听的端口，外部端口会转发到它\n' >&2
+  int="$(ask '内部端口(VPS 上监听)')"
   valid_port "$int" || { err "内部端口非法"; return 1; }
   if nat_internal_exists "$int"; then
     warn "内部端口 $int 已登记: 外部 $(nat_external_for "$int")"
@@ -302,7 +320,9 @@ map_internal_port() {
     info "内部 $internal ($label) 已登记 -> 外部 $(nat_external_for "$internal")"
     confirm "要修改这个登记吗?" || return 0
   fi
-  ext="$(ask "$label 的外部端口(服务商网页端设置的，留空跳过)")"
+  printf '  %s：内部端口 %s 是 VPS 上监听的端口。\n' "$label" "$internal" >&2
+  hint_external
+  ext="$(ask "$label 的外部端口(公网，服务商网页端设置，留空跳过)")"
   [ -n "$ext" ] || return 0
   valid_port "$ext" || { err "端口非法"; return 1; }
   nat_remove_internal "$internal"
@@ -382,9 +402,11 @@ svc_del() {
 svc_add_port() {
   local type="$1" name lip lport rport remark
   name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址' '127.0.0.1')"
+  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
+  hint_local
   lport="$(ask '本机服务端口')"
   valid_port "$lport" || { err "本地端口非法"; return 1; }
+  hint_remote
   rport="$(ask 'frps 内部远端端口' "$lport")"
   valid_port "$rport" || { err "远端端口非法"; return 1; }
   if [ "$EXPOSE_MODE" != "v6" ]; then
@@ -401,7 +423,8 @@ svc_add_port() {
 svc_add_vhost() {
   local type="$1" name lip lport domains remark
   name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址' '127.0.0.1')"
+  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
+  hint_local
   lport="$(ask '本机服务端口' "$([ "$type" = http ] && echo 8096 || echo 443)")"
   valid_port "$lport" || { err "本地端口非法"; return 1; }
   domains="$(ask '自定义域名(多个用逗号分隔)')"
@@ -415,7 +438,8 @@ svc_add_vhost() {
 svc_add_secret() {
   local type="$1" name lip lport secret remark
   name="$(ask '代理名称' "$(svc_unique_name "$type")")"
-  lip="$(ask '本机服务地址' '127.0.0.1')"
+  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
+  hint_local
   lport="$(ask '本机服务端口')"
   valid_port "$lport" || { err "本地端口非法"; return 1; }
   secret="$(ask 'secretKey' "$(gen_token)")"
@@ -427,7 +451,8 @@ svc_add_secret() {
 svc_add_tcpmux() {
   local name lip lport domains mux remark
   name="$(ask '代理名称' "$(svc_unique_name tcpmux)")"
-  lip="$(ask '本机服务地址' '127.0.0.1')"
+  lip="$(ask '本机服务地址(服务所在机器)' '127.0.0.1')"
+  hint_local
   lport="$(ask '本机服务端口')"
   valid_port "$lport" || { err "本地端口非法"; return 1; }
   domains="$(ask 'customDomains(用于路由)')"
@@ -440,8 +465,10 @@ svc_add_tcpmux() {
 
 svc_preset_mc_java() {
   local lport rport remark
+  hint_local
   lport="$(ask '本机 MC 监听端口(server-port)' '25565')"
   valid_port "$lport" || { err "端口非法"; return 1; }
+  hint_remote
   rport="$(ask 'frps 内部远端端口' "$lport")"
   valid_port "$rport" || { err "端口非法"; return 1; }
   [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Java"
@@ -452,8 +479,10 @@ svc_preset_mc_java() {
 
 svc_preset_mc_bedrock() {
   local lport rport remark
+  hint_local
   lport="$(ask '本机 Bedrock 监听端口' '19132')"
   valid_port "$lport" || { err "端口非法"; return 1; }
+  hint_remote
   rport="$(ask 'frps 内部远端端口' "$lport")"
   valid_port "$rport" || { err "端口非法"; return 1; }
   [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Bedrock"
@@ -464,6 +493,7 @@ svc_preset_mc_bedrock() {
 
 svc_preset_emby() {
   local lport domains remark
+  hint_local
   lport="$(ask 'Emby 本机端口' '8096')"
   valid_port "$lport" || { err "端口非法"; return 1; }
   domains="$(ask 'Emby 访问域名')"
@@ -487,9 +517,11 @@ svc_edit() {
   IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
   v="$(ask '名称' "$name")"; name="$v"
   v="$(ask '本机服务地址' "$lip")"; lip="$v"
+  hint_local
   case "$type" in
     tcp|udp)
       v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
+      hint_remote
       v="$(ask 'frps 内部远端端口 remotePort' "$rport")"; valid_port "$v" && rport="$v"
       ;;
     http|https)
@@ -947,7 +979,8 @@ wizard_expose() {
 wizard_ports() {
   step "第 2 步 / 端口设置"
   local v
-  v="$(ask 'frps 控制端口 bindPort(内部)' "$BIND_PORT")"
+  hint_control
+  v="$(ask 'frps 控制端口 bindPort(VPS 内部监听)' "$BIND_PORT")"
   valid_port "$v" && BIND_PORT="$v"
   if [ "$EXPOSE_MODE" = "v6" ]; then
     info "IPv6 直连无需端口映射，客户端直接用 [公网IPv6]:$BIND_PORT"
@@ -974,7 +1007,8 @@ wizard_serverinfo() {
   NICKNAME="$(ask '给这台服务端起个昵称' "$NICKNAME")"
   if confirm "启用 Dashboard 面板?"; then
     DASH_ENABLE=true
-    DASH_PORT="$(ask '面板端口(内部)' "$DASH_PORT")"
+    printf '    · 面板端口：VPS 上访问 frps 管理面板的端口（浏览器打开 http://VPS:端口）\n' >&2
+    DASH_PORT="$(ask '面板端口(VPS 内部监听)' "$DASH_PORT")"
     DASH_USER="$(ask '面板用户名' "$DASH_USER")"
     DASH_PASS="$(ask '面板密码' "${DASH_PASS:-$(gen_token)}")"
     [ "$EXPOSE_MODE" != "v6" ] && map_internal_port "$DASH_PORT" "面板"
@@ -982,7 +1016,8 @@ wizard_serverinfo() {
     DASH_ENABLE=false
   fi
   if confirm "启用 HTTP 建站(Emby 等域名访问)?"; then
-    VHOST_HTTP="$(ask 'vhostHTTPPort(内部)' "${VHOST_HTTP:-8096}")"
+    printf '    · 建站端口 vhostHTTPPort：frps 接收 HTTP 请求的端口，域名访问走它\n' >&2
+    VHOST_HTTP="$(ask 'vhostHTTPPort(VPS 内部监听)' "${VHOST_HTTP:-8096}")"
     SUBDOMAIN_HOST="$(ask '主域名(留空不使用子域名)' "$SUBDOMAIN_HOST")"
     [ "$EXPOSE_MODE" != "v6" ] && map_internal_port "$VHOST_HTTP" "HTTP建站"
   fi
@@ -992,6 +1027,7 @@ wizard_serverinfo() {
 wizard_services() {
   step "第 5 步 / 添加要穿透的服务"
   info "按提示添加服务，完成后选 0 返回"
+  printf '    端口说明：本机端口=你服务实际监听；远端端口=VPS 上 frps 监听；外部端口=公网用户连接\n' >&2
   svc_menu
   if [ ! -s "$SVC_FILE" ]; then warn "还没有添加任何服务"; fi
   save_state
