@@ -588,19 +588,24 @@ main_screen() {
   while true; do
     [ -t 1 ] && clear
     draw_header
+    if ! pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
+      warn "frps 未运行：选「3) 安装/启动 frps」下载并启动"
+    fi
     printf '\n  1) 添加服务\n'
     printf '  2) 查看服务\n'
-    printf '  3) 服务端控制\n'
-    printf '  4) 预览配置\n'
-    printf '  5) 卸载\n'
+    printf '  3) 安装/启动 frps\n'
+    printf '  4) 服务端控制\n'
+    printf '  5) 预览配置\n'
+    printf '  6) 卸载\n'
     printf '  0) 退出\n'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
       1) add_menu ;;
       2) svc_view ;;
-      3) server_menu ;;
-      4) preview_menu ;;
-      5) uninstall_all && return 0 ;;
+      3) install_frps ;;
+      4) server_menu ;;
+      5) preview_menu ;;
+      6) uninstall_all && return 0 ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
