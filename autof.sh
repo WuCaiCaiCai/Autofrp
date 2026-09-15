@@ -26,13 +26,13 @@ else
   C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_BOLD=""; C_RST=""
 fi
 
-info()  { printf '%s[*]%s %s\n' "$C_BLUE" "$C_RST" "$*"; }
-ok()    { printf '%s[+]%s %s\n' "$C_GREEN" "$C_RST" "$*"; }
-warn()  { printf '%s[!]%s %s\n' "$C_YELLOW" "$C_RST" "$*"; }
+info()  { printf '%s[*]%s %s\n' "$C_BLUE" "$C_RST" "$*" >&2; }
+ok()    { printf '%s[+]%s %s\n' "$C_GREEN" "$C_RST" "$*" >&2; }
+warn()  { printf '%s[!]%s %s\n' "$C_YELLOW" "$C_RST" "$*" >&2; }
 err()   { printf '%s[x]%s %s\n' "$C_RED" "$C_RST" "$*" >&2; }
-title() { printf '\n%s== %s ==%s\n' "$C_BOLD" "$*" "$C_RST"; }
-step()  { printf '\n%s>>> %s%s\n' "$C_BOLD" "$*" "$C_RST"; }
-hr()    { printf '%s\n' "------------------------------------------------------------"; }
+title() { printf '\n%s== %s ==%s\n' "$C_BOLD" "$*" "$C_RST" >&2; }
+step()  { printf '\n%s>>> %s%s\n' "$C_BOLD" "$*" "$C_RST" >&2; }
+hr()    { printf '%s\n' "------------------------------------------------------------" >&2; }
 die()   { err "$*"; exit 1; }
 
 require_root() {
@@ -1016,83 +1016,113 @@ wizard() {
 
   show_status
   echo
-  ok "配置完成。以后输入 autof 可进入管理菜单。"
+  ok "配置完成。以后输入 autof 可进入主界面。"
   maybe_install_prompt
 }
 
-manage_menu() {
+RULE_LINE="$(printf '═%.0s' {1..62})"
+
+draw_header() {
+  local st
+  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
+    st="运行中 (PID $(pgrep -f '/usr/local/bin/frps' | head -1))"
+  else
+    st="已停止"
+  fi
+  printf '%s\n' "$RULE_LINE"
+  printf '  Autofrp  ·  frps 服务端管理\n'
+  printf '%s\n' "$RULE_LINE"
+  printf '  IPv4   %s  %s\n' "${V4_STATUS:-未探测}" "${PUBLIC_IP:-}"
+  printf '  IPv6   %s  %s\n' "${V6_STATUS:-未探测}" "${PUBLIC_IP6:-}"
+  printf '  状态   %s\n' "$st"
+  printf '  昵称   %s\n' "${NICKNAME:-未设置}"
+  printf '%s\n' "$RULE_LINE"
+}
+
+pause_key() {
+  [ -t 0 ] || return 0
+  read -rp "按回车返回..." _ || true
+}
+
+preview_frpc() {
+  case "$EXPOSE_MODE" in
+    v4) print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)" ;;
+    v6) print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)" ;;
+    both)
+      print_block "frpc.toml (IPv4 客户端)" "$(gen_frpc 4)"
+      print_block "frpc.toml (IPv6 客户端)" "$(gen_frpc 6)"
+      ;;
+    *) print_block "frpc.toml" "$(gen_frpc 4)" ;;
+  esac
+}
+
+config_new() {
+  if [ -s "$SVC_FILE" ] || [ -n "$TOKEN" ]; then
+    printf '\n  1) 完整配置 (重设服务端 + 服务)\n'
+    printf '  2) 仅添加服务\n'
+    local c; c="$(ask '请选择' '2')"
+    case "$c" in
+      1) wizard ;;
+      *)
+        svc_menu
+        save_state
+        save_frps_config
+        save_client_configs
+        confirm "重启服务端以生效?" && service_ctl restart
+        ;;
+    esac
+  else
+    wizard
+  fi
+}
+
+view_menu() {
+  while true; do
+    [ -t 1 ] && clear
+    draw_header
+    printf '\n  1) 服务列表\n'
+    printf '  2) 预览 frps.toml\n'
+    printf '  3) 预览 frpc.toml\n'
+    printf '  4) 停止服务端\n'
+    printf '  5) 重启服务端\n'
+    printf '  6) 查看日志\n'
+    printf '  7) 运行自检\n'
+    printf '  0) 返回\n'
+    local c; c="$(ask '请选择' '0')"
+    printf '\n'
+    case "$c" in
+      1) list_services ;;
+      2) print_block "frps.toml" "$(gen_frps)" ;;
+      3) preview_frpc ;;
+      4) service_ctl stop ;;
+      5) service_ctl restart ;;
+      6) service_ctl logs ;;
+      7) run_selftest ;;
+      0) return 0 ;;
+      *) warn "无效选项" ;;
+    esac
+    pause_key
+  done
+}
+
+main_screen() {
   load_state
   detect_env
   save_state
-  print_env_report
   while true; do
-    title "autof 管理菜单"
-    echo "  1) 重新探测环境"
-    echo "  2) 查看服务列表/状态"
-    echo "  3) 添加服务"
-    echo "  4) 登记 NAT 端口映射"
-    echo "  5) 修改基础设置(端口/token/面板/昵称)"
-    echo "  6) 高级设置(KCP/QUIC/vhost/日志)"
-    echo "  7) 生成并预览配置"
-    echo "  8) 保存配置到磁盘"
-    echo "  9) 安装/更新 frps 并启动"
-    echo " 10) 自检"
-    echo " 11) 重启/停止/日志"
-    echo " 12) 重新运行配置向导"
-    echo " 13) 将本脚本安装为 autof 命令"
-    echo "  0) 退出"
+    [ -t 1 ] && clear
+    draw_header
+    printf '\n  1) 配置新服务\n'
+    printf '  2) 查看当前服务\n'
+    printf '  0) 退出\n'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
-      1) detect_env; save_state; print_env_report ;;
-      2) show_status ;;
-      3) svc_menu; save_state ;;
-      4) nat_menu ;;
-      5) basic_menu ;;
-      6) advanced_menu ;;
-      7) print_block "frps.toml" "$(gen_frps)"; [ "$EXPOSE_MODE" = "v6" ] && print_block "frpc.toml (v6)" "$(gen_frpc 6)" || print_block "frpc.toml (v4)" "$(gen_frpc 4)" ;;
-      8) save_frps_config; save_client_configs ;;
-      9) install_frps ;;
-      10) run_selftest ;;
-      11) service_menu ;;
-      12) wizard ;;
-      13) self_install ;;
+      1) config_new ;;
+      2) view_menu ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
   done
-}
-
-basic_menu() {
-  local v
-  title "基础设置"
-  NICKNAME="$(ask '昵称' "$NICKNAME")"
-  v="$(ask 'bindPort 控制端口(内部)' "$BIND_PORT")"; valid_port "$v" && BIND_PORT="$v"
-  v="$(ask 'auth token' "$TOKEN")"; TOKEN="$v"
-  v="$(ask '强制 TLS (true/false)' "$TLS_FORCE")"; case "$v" in true|false) TLS_FORCE="$v";; esac
-  if confirm "启用 Dashboard 面板? (当前: $DASH_ENABLE)"; then
-    DASH_ENABLE=true
-    DASH_PORT="$(ask '面板端口(内部)' "$DASH_PORT")"
-    DASH_USER="$(ask '面板用户名' "$DASH_USER")"
-    DASH_PASS="$(ask '面板密码' "$DASH_PASS")"
-  else
-    DASH_ENABLE=false
-  fi
-  save_state
-  ok "基础设置已保存"
-}
-
-advanced_menu() {
-  local v
-  title "高级设置"
-  v="$(ask 'KCP 端口(留空关闭)' "$KCP_PORT")"; KCP_PORT="$v"
-  v="$(ask 'QUIC 端口(留空关闭)' "$QUIC_PORT")"; QUIC_PORT="$v"
-  v="$(ask 'vhostHTTPPort(留空关闭建站)' "$VHOST_HTTP")"; VHOST_HTTP="$v"
-  v="$(ask 'vhostHTTPSPort(留空关闭)' "$VHOST_HTTPS")"; VHOST_HTTPS="$v"
-  v="$(ask 'subDomainHost(留空不使用子域名)' "$SUBDOMAIN_HOST")"; SUBDOMAIN_HOST="$v"
-  v="$(ask 'maxPortsPerClient(0为不限)' "$MAX_PORTS")"; is_uint "$v" && MAX_PORTS="$v"
-  v="$(ask '日志级别(trace/debug/info/warn/error)' "$LOG_LEVEL")"; LOG_LEVEL="$v"
-  save_state
-  ok "高级设置已保存"
 }
 
 nat_menu() {
@@ -1115,35 +1145,13 @@ nat_menu() {
   done
 }
 
-service_menu() {
-  while true; do
-    title "服务端控制"
-    echo "  1) 查看状态"
-    echo "  2) 重启"
-    echo "  3) 停止"
-    echo "  4) 查看日志"
-    echo "  5) 卸载服务端"
-    echo "  0) 返回"
-    local c; c="$(ask '请选择' '0')"
-    case "$c" in
-      1) service_ctl status ;;
-      2) service_ctl restart ;;
-      3) service_ctl stop ;;
-      4) service_ctl logs ;;
-      5) service_ctl uninstall ;;
-      0) return 0 ;;
-      *) warn "无效选项" ;;
-    esac
-  done
-}
-
 usage() {
   cat <<EOF
 $APP - NAT 小鸡 frps 一键工具
 
 用法:
-  $APP                 配置向导(推荐，首次使用)
-  $APP menu            管理菜单
+  $APP                 主界面(推荐)
+  $APP wizard          配置向导
   $APP detect          仅探测本机网络环境
   $APP list            查看服务列表与状态
   $APP status          查看服务端状态
@@ -1163,9 +1171,9 @@ EOF
 
 main() {
   case "${1:-}" in
-    "") wizard ;;
+    "") main_screen ;;
     wizard) wizard ;;
-    menu|manage) manage_menu ;;
+    menu|manage) main_screen ;;
     detect) load_state; detect_env; save_state; print_env_report ;;
     list) load_state; list_services ;;
     status) load_state; show_status ;;

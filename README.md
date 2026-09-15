@@ -24,11 +24,33 @@ curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -
 sudo bash autof.sh
 ```
 
-首次运行进入配置向导，结束时提示安装为 `autof` 命令。安装后直接执行：
+首次运行进入主界面，结束时提示安装为 `autof` 命令。安装后直接执行：
 
 ```bash
 sudo autof
 ```
+
+### 主界面
+
+主界面顶部显示本机网络信息与服务端状态，菜单仅两项：
+
+```
+══════════════════════════════════════════════════════════════
+  Autofrp  ·  frps 服务端管理
+══════════════════════════════════════════════════════════════
+  IPv4   公网 IPv4 / NAT IPv4   出口地址
+  IPv6   公网 IPv6 / NAT IPv6   出口地址
+  状态   运行中 / 已停止
+  昵称   服务端昵称
+══════════════════════════════════════════════════════════════
+
+  1) 配置新服务
+  2) 查看当前服务
+  0) 退出
+```
+
+- **配置新服务**：首次运行进入配置向导；已有配置时可选择「完整配置」或「仅添加服务」。
+- **查看当前服务**：下级菜单提供服务列表、`frps.toml` / `frpc.toml` 预览、停止、重启、日志、自检。
 
 ### 配置向导流程
 
@@ -143,8 +165,8 @@ sudo bash autof.sh
 ## 命令
 
 ```bash
-sudo autof              # 配置向导（首次使用）
-sudo autof menu         # 管理菜单
+sudo autof              # 主界面
+sudo autof wizard       # 配置向导
 sudo autof list         # 服务列表、访问地址与状态
 sudo autof status       # 服务端运行状态
 sudo autof detect       # 仅探测网络环境
