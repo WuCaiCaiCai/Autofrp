@@ -341,6 +341,38 @@ svc_del() {
   ok "已删除序号 $n"
 }
 
+check_access() {
+  title "接入检查"
+  if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
+    ok "frps 运行中"
+  else
+    err "frps 未运行（先到「服务端控制」启动）"
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    printf '  frps 正在监听: %s\n' "$(ss -tlnp 2>/dev/null | awk '/frps/{print $4}' | tr '\n' ' ')"
+  fi
+  printf '  frpc 连接地址: %s:%s\n' "$(public_addr)" "$CONTROL_OUT"
+  hr
+  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务"; return 0; fi
+  local name type lip lport remote external dom sec mux rem
+  while IFS='|' read -r name type lip lport remote external dom sec mux rem; do
+    [ -n "$name" ] || continue
+    case "$type" in
+      tcp|udp)
+        printf '  [%s] 玩家连接 %s:%s\n' "$name" "$(public_addr)" "$external"
+        printf '        服务商映射应为: 外部 %s -> 内部 %s（frps 监听 %s）\n' "$external" "$remote" "$remote"
+        ;;
+      stcp|xtcp) printf '  [%s] %s 隧道（由另一台 frpc 用 secretKey 访问）\n' "$name" "$type";;
+    esac
+  done < "$SVC_FILE"
+  hr
+  printf '  排查顺序：\n'
+  printf '   1) 服务商网页端：确认「外部端口 -> 内部端口」已设置并生效\n'
+  printf '   2) 玩家连的是「对外端口」，不是 remotePort\n'
+  printf '   3) 内网机器上服务确实监听在对应本机端口，且 frpc 已 start proxy success\n'
+  printf '   4) 忽略第三方面板显示的“远程连接地址”，以本页为准\n'
+}
+
 svc_menu() {
   while true; do
     [ -t 1 ] && clear
@@ -655,6 +687,7 @@ main_screen() {
     printf '  2) 服务管理\n'
     printf '  3) 预览/生成配置\n'
     printf '  4) 服务端控制\n'
+    printf '  5) 接入检查\n'
     printf '  0) 退出\n'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
@@ -662,6 +695,7 @@ main_screen() {
       2) svc_menu ;;
       3) preview_menu ;;
       4) server_menu ;;
+      5) check_access; pause_key ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
