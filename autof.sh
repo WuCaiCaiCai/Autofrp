@@ -439,23 +439,27 @@ svc_add_tcpmux() {
 }
 
 svc_preset_mc_java() {
-  local rport remark
-  rport="$(ask 'frps 内部远端端口' '25565')"
+  local lport rport remark
+  lport="$(ask '本机 MC 监听端口(server-port)' '25565')"
+  valid_port "$lport" || { err "端口非法"; return 1; }
+  rport="$(ask 'frps 内部远端端口' "$lport")"
   valid_port "$rport" || { err "端口非法"; return 1; }
   [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Java"
   remark="$(ask '备注(可留空)' 'Minecraft Java')"
-  svc_append "$(svc_unique_name mc-java)" "tcp" "127.0.0.1" "25565" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Java (TCP 25565 -> frps:$rport)"
+  svc_append "$(svc_unique_name mc-java)" "tcp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
+  ok "已添加 Minecraft Java (本机 $lport -> frps:$rport)"
 }
 
 svc_preset_mc_bedrock() {
-  local rport remark
-  rport="$(ask 'frps 内部远端端口' '19132')"
+  local lport rport remark
+  lport="$(ask '本机 Bedrock 监听端口' '19132')"
+  valid_port "$lport" || { err "端口非法"; return 1; }
+  rport="$(ask 'frps 内部远端端口' "$lport")"
   valid_port "$rport" || { err "端口非法"; return 1; }
   [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Bedrock"
   remark="$(ask '备注(可留空)' 'Minecraft Bedrock')"
-  svc_append "$(svc_unique_name mc-bedrock)" "udp" "127.0.0.1" "19132" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Bedrock (UDP 19132 -> frps:$rport)"
+  svc_append "$(svc_unique_name mc-bedrock)" "udp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
+  ok "已添加 Minecraft Bedrock (本机 $lport -> frps:$rport)"
 }
 
 svc_preset_emby() {
