@@ -373,18 +373,18 @@ svc_list() {
     warn "暂无服务穿透配置"
     return 0
   fi
-  printf '  %-4s %-14s %-6s %-16s %-8s %-10s %s\n' "序号" "名称" "类型" "本地" "本地口" "外部口" "备注"
+  printf '  %-4s %-14s %-6s %-8s %-8s %-8s %s\n' "序号" "名称" "类型" "本机口" "远端口" "外部口" "备注"
   hr
-  local i=0 line name type lip lport rport domains secret mux remark ext
+  local i=0 name type lip lport rport domains secret mux remark ext
   while IFS='|' read -r name type lip lport rport domains secret mux remark; do
     [ -n "$name" ] || continue
     i=$((i + 1))
-    ext=""
     case "$type" in
       tcp|udp) ext="$(nat_external_for "$rport")"; [ -n "$ext" ] || ext="未登记";;
       http|https) ext="${VHOST_HTTP:-未启用}";;
+      *) ext="-";;
     esac
-    printf '  %-4s %-14s %-6s %-16s %-8s %-10s %s\n' "$i" "$name" "$type" "$lip" "$lport" "$ext" "$remark"
+    printf '  %-4s %-14s %-6s %-8s %-8s %-8s %s\n' "$i" "$name" "$type" "$lport" "$rport" "$ext" "$remark"
   done < "$SVC_FILE"
 }
 
@@ -399,6 +399,111 @@ svc_del() {
   ok "已删除序号 $n"
 }
 
+gen_frpc_proxy() {
+  local n="$1" name type lip lport rport domains secret mux remark line
+  line="$(sed -n "${n}p" "$SVC_FILE")"
+  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
+  [ -n "$name" ] || return 1
+  [ -n "$remark" ] && echo "# $remark"
+  echo "[[proxies]]"
+  echo "name = \"$name\""
+  echo "type = \"$type\""
+  case "$type" in
+    tcp|udp)
+      echo "localIP = \"$lip\""
+      echo "localPort = $lport"
+      echo "remotePort = $rport"
+      ;;
+    http|https)
+      echo "localIP = \"$lip\""
+      echo "localPort = $lport"
+      [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
+      ;;
+    stcp|xtcp)
+      echo "secretKey = \"$secret\""
+      echo "localIP = \"$lip\""
+      echo "localPort = $lport"
+      ;;
+    tcpmux)
+      echo "multiplexer = \"$mux\""
+      echo "localIP = \"$lip\""
+      echo "localPort = $lport"
+      [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
+      ;;
+  esac
+}
+
+svc_detail() {
+  svc_list || return 0
+  local n; n="$(ask '要查看的序号(留空取消)')"
+  [ -n "$n" ] || return 0
+  is_uint "$n" || { err "序号非法"; return 1; }
+  local total; total="$(wc -l < "$SVC_FILE")"
+  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
+  local line name type lip lport rport domains secret mux remark
+  line="$(sed -n "${n}p" "$SVC_FILE")"
+  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
+  title "服务详情: $name"
+  printf '  %-10s %s\n' "类型" "$type"
+  printf '  %-10s %s\n' "本机" "$lip:$lport"
+  case "$type" in
+    tcp|udp) printf '  %-10s %s\n' "frps 远端" "$rport";;
+    http|https) printf '  %-10s %s\n' "访问域名" "$domains";;
+  esac
+  [ -n "$remark" ] && printf '  %-10s %s\n' "备注" "$remark"
+  show_chain "$name" "$type" "$lip" "$lport" "$rport"
+  printf '\n'
+  print_block "该服务的 frpc.toml 片段" "$(gen_frpc_proxy "$n")"
+}
+
+nat_external_owner() {
+  awk -F'|' -v p="$1" '$1==p{print $2; exit}' "$NAT_FILE" 2>/dev/null
+}
+
+ask_expose_ports() {
+  local label="$1" owner
+  if [ "$EXPOSE_MODE" = "v6" ]; then
+    E_PORT="$L_PORT"
+    R_PORT="$L_PORT"
+    return 0
+  fi
+  hint_external
+  E_PORT="$(ask "外部端口($label，玩家/用户连接用)" "$L_PORT")"
+  valid_port "$E_PORT" || { err "外部端口非法"; return 1; }
+  owner="$(nat_external_owner "$E_PORT")"
+  if [ -n "$owner" ]; then
+    warn "外部端口 $E_PORT 已登记给内部端口 $owner"
+    confirm "仍要使用吗?" || return 1
+  fi
+  printf '    · 若服务商映射到的内部端口与外部不同，在此填写；相同则直接回车\n' >&2
+  R_PORT="$(ask 'VPS 内部端口(frps 监听，默认同外部)' "$E_PORT")"
+  valid_port "$R_PORT" || { err "内部端口非法"; return 1; }
+  nat_remove_internal "$R_PORT"
+  printf '%s|%s|%s\n' "$E_PORT" "$R_PORT" "$label" >> "$NAT_FILE"
+  ok "已登记映射: 外部 $E_PORT -> 内部 $R_PORT ($label)"
+}
+
+show_chain() {
+  local name="$1" type="$2" lip="$3" lport="$4" rport="$5" ext
+  case "$type" in
+    tcp|udp)
+      if [ "$EXPOSE_MODE" = "v6" ]; then
+        printf '  接入: 用户 -> [%s]:%s --(frp)--> %s:%s\n' "${PUBLIC_IP6:-公网IPv6}" "$rport" "$lip" "$lport"
+      else
+        ext="$(nat_external_for "$rport")"
+        [ -n "$ext" ] || ext="$rport"
+        printf '  接入: 用户 -> %s:%s --(NAT)--> VPS:%s --(frp)--> %s:%s\n' "${PUBLIC_IP:-公网IP}" "$ext" "$rport" "$lip" "$lport"
+      fi
+      ;;
+    http|https)
+      printf '  接入: 用户 -> http(s)://%s (经 frps 建站端口 %s)\n' "$6" "${VHOST_HTTP:-未启用}"
+      ;;
+    *)
+      printf '  接入: 隧道/点对点服务\n'
+      ;;
+  esac
+}
+
 svc_add_port() {
   local type="$1" name lip lport rport remark
   name="$(ask '代理名称' "$(svc_unique_name "$type")")"
@@ -406,18 +511,13 @@ svc_add_port() {
   hint_local
   lport="$(ask '本机服务端口')"
   valid_port "$lport" || { err "本地端口非法"; return 1; }
-  hint_remote
-  rport="$(ask 'frps 内部远端端口' "$lport")"
-  valid_port "$rport" || { err "远端端口非法"; return 1; }
-  if [ "$EXPOSE_MODE" != "v6" ]; then
-    if ! nat_internal_exists "$rport"; then
-      warn "内部端口 $rport 还没登记映射，请先确认服务商网页端已放行"
-      confirm "现在登记它的外部端口吗?" && map_internal_port "$rport" "$name"
-    fi
-  fi
+  L_PORT="$lport"
+  ask_expose_ports "$name" || return 1
+  rport="$R_PORT"
   remark="$(ask '备注(可留空)' '')"
   svc_append "$name" "$type" "$lip" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 $type 服务: $name ($lip:$lport -> frps:$rport)"
+  ok "已添加 $type 服务: $name"
+  show_chain "$name" "$type" "$lip" "$lport" "$rport"
 }
 
 svc_add_vhost() {
@@ -430,9 +530,14 @@ svc_add_vhost() {
   domains="$(ask '自定义域名(多个用逗号分隔)')"
   [ -n "$domains" ] || { err "域名不能为空"; return 1; }
   [ -n "$VHOST_HTTP" ] || VHOST_HTTP="$lport"
+  if [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$VHOST_HTTP"; then
+    warn "建站端口 $VHOST_HTTP 还没有映射，请先在服务商网页端放行"
+    map_internal_port "$VHOST_HTTP" "HTTP建站"
+  fi
   remark="$(ask '备注(可留空)' '')"
   svc_append "$name" "$type" "$lip" "$lport" "" "$domains" "" "" "$remark"
   ok "已添加 $type 服务: $name -> $domains"
+  show_chain "$name" "$type" "$lip" "$lport" "" "$domains"
 }
 
 svc_add_secret() {
@@ -445,7 +550,7 @@ svc_add_secret() {
   secret="$(ask 'secretKey' "$(gen_token)")"
   remark="$(ask '备注(可留空)' '')"
   svc_append "$name" "$type" "$lip" "$lport" "" "" "$secret" "" "$remark"
-  ok "已添加 $type 服务: $name"
+  ok "已添加 $type 服务: $name (需另一台 frpc 用 secretKey 访问)"
 }
 
 svc_add_tcpmux() {
@@ -468,13 +573,13 @@ svc_preset_mc_java() {
   hint_local
   lport="$(ask '本机 MC 监听端口(server-port)' '25565')"
   valid_port "$lport" || { err "端口非法"; return 1; }
-  hint_remote
-  rport="$(ask 'frps 内部远端端口' "$lport")"
-  valid_port "$rport" || { err "端口非法"; return 1; }
-  [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Java"
+  L_PORT="$lport"
+  ask_expose_ports "MC Java" || return 1
+  rport="$R_PORT"
   remark="$(ask '备注(可留空)' 'Minecraft Java')"
   svc_append "$(svc_unique_name mc-java)" "tcp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Java (本机 $lport -> frps:$rport)"
+  ok "已添加 Minecraft Java"
+  show_chain mc-java tcp 127.0.0.1 "$lport" "$rport"
 }
 
 svc_preset_mc_bedrock() {
@@ -482,13 +587,13 @@ svc_preset_mc_bedrock() {
   hint_local
   lport="$(ask '本机 Bedrock 监听端口' '19132')"
   valid_port "$lport" || { err "端口非法"; return 1; }
-  hint_remote
-  rport="$(ask 'frps 内部远端端口' "$lport")"
-  valid_port "$rport" || { err "端口非法"; return 1; }
-  [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport" && confirm "登记它的外部端口吗?" && map_internal_port "$rport" "MC Bedrock"
+  L_PORT="$lport"
+  ask_expose_ports "MC Bedrock" || return 1
+  rport="$R_PORT"
   remark="$(ask '备注(可留空)' 'Minecraft Bedrock')"
   svc_append "$(svc_unique_name mc-bedrock)" "udp" "127.0.0.1" "$lport" "$rport" "" "" "" "$remark"
-  ok "已添加 Minecraft Bedrock (本机 $lport -> frps:$rport)"
+  ok "已添加 Minecraft Bedrock"
+  show_chain mc-bedrock udp 127.0.0.1 "$lport" "$rport"
 }
 
 svc_preset_emby() {
@@ -499,7 +604,10 @@ svc_preset_emby() {
   domains="$(ask 'Emby 访问域名')"
   [ -n "$domains" ] || { err "域名不能为空"; return 1; }
   [ -n "$VHOST_HTTP" ] || VHOST_HTTP="$lport"
-  [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$VHOST_HTTP" && confirm "登记建站端口 $VHOST_HTTP 的外部端口吗?" && map_internal_port "$VHOST_HTTP" "HTTP建站"
+  if [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$VHOST_HTTP"; then
+    warn "建站端口 $VHOST_HTTP 还没有映射，请先在服务商网页端放行"
+    map_internal_port "$VHOST_HTTP" "HTTP建站"
+  fi
   remark="$(ask '备注(可留空)' 'Emby')"
   svc_append "$(svc_unique_name emby)" "http" "127.0.0.1" "$lport" "" "$domains" "" "" "$remark"
   ok "已添加 Emby (HTTP $lport -> $domains)"
@@ -542,6 +650,10 @@ svc_edit() {
   local newline="$name|$type|$lip|$lport|$rport|$domains|$secret|$mux|$remark"
   local tmp; tmp="$(mktemp)"
   awk -v n="$n" -v nl="$newline" 'NR==n{print nl; next}{print}' "$SVC_FILE" > "$tmp" && mv "$tmp" "$SVC_FILE"
+  if { [ "$type" = "tcp" ] || [ "$type" = "udp" ]; } && [ "$EXPOSE_MODE" != "v6" ] && ! nat_internal_exists "$rport"; then
+    warn "内部端口 $rport 还没有映射，请确认服务商网页端已放行"
+    map_internal_port "$rport" "$name"
+  fi
   save_frps_config
   save_client_configs
   ok "已更新序号 $n"
@@ -653,38 +765,14 @@ gen_frpc() {
   [ -n "$TOKEN" ] && echo "auth.token = \"$TOKEN\""
   echo "transport.tls.enable = true"
   echo
-  local name type lip lport rport domains secret mux remark
-  while IFS='|' read -r name type lip lport rport domains secret mux remark; do
-    [ -n "$name" ] || continue
-    [ -n "$remark" ] && echo "# $remark"
-    echo "[[proxies]]"
-    echo "name = \"$name\""
-    echo "type = \"$type\""
-    case "$type" in
-      tcp|udp)
-        echo "localIP = \"$lip\""
-        echo "localPort = $lport"
-        echo "remotePort = $rport"
-        ;;
-      http|https)
-        echo "localIP = \"$lip\""
-        echo "localPort = $lport"
-        [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
-        ;;
-      stcp|xtcp)
-        echo "secretKey = \"$secret\""
-        echo "localIP = \"$lip\""
-        echo "localPort = $lport"
-        ;;
-      tcpmux)
-        echo "multiplexer = \"$mux\""
-        echo "localIP = \"$lip\""
-        echo "localPort = $lport"
-        [ -n "$domains" ] && echo "customDomains = $(domains_to_toml "$domains")"
-        ;;
-    esac
+  local i n
+  n="$(wc -l < "$SVC_FILE" 2>/dev/null || echo 0)"
+  i=1
+  while [ "$i" -le "$n" ]; do
+    gen_frpc_proxy "$i"
     echo
-  done < "$SVC_FILE"
+    i=$((i + 1))
+  done
 }
 
 print_block() {
@@ -1166,26 +1254,29 @@ view_menu() {
   while true; do
     [ -t 1 ] && clear
     draw_header
-    printf '\n  1) 服务列表\n'
-    printf '  2) 预览 frps.toml\n'
-    printf '  3) 预览 frpc.toml\n'
-    printf '  4) 编辑服务(含本机端口)\n'
-    printf '  5) 停止服务端\n'
-    printf '  6) 重启服务端\n'
-    printf '  7) 查看日志\n'
-    printf '  8) 运行自检\n'
+    list_services
+    printf '\n  1) 选择服务：查看详情与 TOML\n'
+    printf '  2) 编辑服务\n'
+    printf '  3) 删除服务\n'
+    printf '  4) 预览 frps.toml\n'
+    printf '  5) 预览 frpc.toml\n'
+    printf '  6) 停止服务端\n'
+    printf '  7) 重启服务端\n'
+    printf '  8) 查看日志\n'
+    printf '  9) 运行自检\n'
     printf '  0) 返回\n'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
     case "$c" in
-      1) list_services ;;
-      2) print_block "frps.toml" "$(gen_frps)" ;;
-      3) preview_frpc ;;
-      4) svc_edit ;;
-      5) service_ctl stop ;;
-      6) service_ctl restart ;;
-      7) service_ctl logs ;;
-      8) run_selftest ;;
+      1) svc_detail ;;
+      2) svc_edit ;;
+      3) svc_del ;;
+      4) print_block "frps.toml" "$(gen_frps)" ;;
+      5) preview_frpc ;;
+      6) service_ctl stop ;;
+      7) service_ctl restart ;;
+      8) service_ctl logs ;;
+      9) run_selftest ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
