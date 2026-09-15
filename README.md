@@ -1,4 +1,4 @@
-# Autofrpc
+# Autofrp
 
 一键配置 NAT 小鸡上的 **frps（frp 服务端）** 的交互式脚本。
 
@@ -15,10 +15,8 @@
 
 ## 一键安装
 
-把仓库上传到 GitHub 后，把下面的 `YOUR_GITHUB_NAME` 换成你的用户名：
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_NAME/Autofrpc/main/autof.sh -o autof.sh \
+curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -o autof.sh \
   && sudo bash autof.sh
 ```
 
@@ -28,21 +26,23 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_NAME/Autofrpc/main/auto
 sudo autof
 ```
 
-也可以直接管道运行（需要先把脚本里的 `SELF_URL` 改成你自己的仓库地址）：
+也可以直接管道运行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_NAME/Autofrpc/main/autof.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh)
 ```
 
-## 配置 SELF_URL（用于自安装 / 自更新）
+## 自安装 / 自更新
 
-打开 `autof.sh`，把顶部这一行改成你的仓库地址：
+脚本顶部已配置好 `SELF_URL` 指向本仓库：
 
 ```bash
-SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/YOUR_GITHUB_NAME/Autofrpc/main/autof.sh}"
+SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh}"
 ```
 
-之后即可使用 `autof self-install` 和 `autof self-update`。
+- `autof self-install`：把脚本安装到 `/usr/local/bin/autof`
+- `autof self-update`：从本仓库拉取最新脚本并覆盖自身
+- 也可用环境变量临时覆盖：`AUTOF_SELF_URL=... autof self-update`
 
 ## 使用
 
@@ -144,3 +144,10 @@ sudo autof uninstall       # 移除 frps 服务与二进制
 sudo rm -rf /etc/autof     # 移除配置（谨慎）
 sudo rm -f /usr/local/bin/autof
 ```
+
+## 版权与免责声明
+
+- **本项目非官方**：Autofrp 是第三方辅助脚本，与 [fatedier/frp](https://github.com/fatedier/frp) 项目及其作者**没有任何隶属、赞助或背书关系**。
+- **frp 版权**：`frp` / `frps` / `frpc` 的著作权归其原作者所有，遵循 [Apache License 2.0](https://github.com/fatedier/frp/blob/master/LICENSE)。本脚本不包含、不修改、不重新分发 frp 的源代码或二进制，仅在运行时从官方 GitHub Release 下载，相关权利与许可请以官方仓库为准。
+- **本脚本许可**：本仓库自身的代码采用 [MIT License](LICENSE)。
+- **免责**：本脚本按「现状」提供，不提供任何明示或暗示的担保。使用本脚本进行端口映射、内网穿透等操作时，请自行确保符合当地法律法规、云服务商/网络服务商的条款，以及你所有服务（如 Minecraft、Emby）的授权与许可。因使用本脚本产生的任何后果由使用者自行承担。

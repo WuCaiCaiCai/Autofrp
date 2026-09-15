@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
+# Autofrp - NAT VPS frps 一键配置脚本
+# Copyright (c) 2026 Wu Cai (WuCaiCaiCai)
+# SPDX-License-Identifier: MIT
+# 非官方项目，与 fatedier/frp 无隶属关系；frp 版权归其作者所有，遵循 Apache-2.0。
 set -u
 
 APP="autof"
-SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/YOUR_GITHUB_NAME/Autofrpc/main/autof.sh}"
+SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh}"
 
 if [ "$(id -u)" = "0" ] || [ -w /etc ]; then
   STATE_DIR="/etc/autof"
@@ -771,7 +775,7 @@ self_install() {
   local target="/usr/local/bin/$APP" src=""
   if [ -f "$0" ]; then
     src="$0"
-  elif [ -n "$SELF_URL" ] && [ "$SELF_URL" != *YOUR_GITHUB_NAME* ]; then
+  elif [ -n "$SELF_URL" ]; then
     info "从 $SELF_URL 下载脚本..."
     local tmp; tmp="$(mktemp)"
     curl -fsSL --connect-timeout 10 --max-time 60 "$SELF_URL" -o "$tmp" || die "下载失败，请检查 SELF_URL"
@@ -791,7 +795,6 @@ self_install() {
 self_update() {
   require_root
   [ -n "$SELF_URL" ] || die "未设置 SELF_URL"
-  case "$SELF_URL" in *YOUR_GITHUB_NAME*) die "请先把脚本顶部的 SELF_URL 改成你自己的仓库地址";; esac
   local target="/usr/local/bin/$APP" tmp
   tmp="$(mktemp)"
   info "更新中: $SELF_URL"
@@ -806,7 +809,7 @@ maybe_install_prompt() {
   local target="/usr/local/bin/$APP"
   [ "$(id -u)" = "0" ] || return 0
   if [ -f "$0" ] && [ "$(readlink -f "$0")" = "$target" ]; then return 0; fi
-  if [ ! -f "$0" ] && { [ -z "$SELF_URL" ] || [ "$SELF_URL" = *YOUR_GITHUB_NAME* ]; }; then return 0; fi
+  if [ ! -f "$0" ] && [ -z "$SELF_URL" ]; then return 0; fi
   if confirm "是否把本脚本安装为命令 $APP (方便以后直接运行)?"; then
     self_install
   fi
