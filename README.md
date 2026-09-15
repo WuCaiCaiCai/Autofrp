@@ -138,7 +138,11 @@ sudo autof self-update  # 更新脚本自身
 1. **连不上**：确认服务商网页端映射规则是「对外端口 → 内部端口」，且与脚本里填的**对外端口、VPS 内部端口**一致；控制端口同理（对外 → `bindPort`）。
 2. **token 不一致**：服务端与客户端配置里的 `auth.token` 必须相同。
 3. **报错 `json: unknown field "allowPorts"`**：把 `frps.toml` 当成客户端配置用了。`frpc` 只能用 `autof gen frpc` 输出的配置（只含 `serverAddr`/`serverPort`/`auth`/`[[proxies]]`）。
-4. **看日志**：`sudo autof logs`。
+4. **端口能连但进不去服务（如 MC）**：`nc -vz 公网IP 对外端口` 能连上，说明隧道通了；问题在 `frpc → 服务`。多半是 `localIP` 不对：
+   - frpc 与服务在同一台机器 → `127.0.0.1`。
+   - **frpc 跑在 Docker 容器里**（如 MSLX）→ `127.0.0.1` 指容器自己，要填宿主机内网 IP 或 `host.docker.internal`，或让容器用 `host` 网络。
+   - 服务在另一台机器 → 填那台机器的内网 IP。
+5. **看日志**：`sudo autof logs`。
 
 ## 文件位置
 

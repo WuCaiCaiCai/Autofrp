@@ -256,11 +256,14 @@ ask_port_model() {
 svc_add_port() {
   local type="$1" def_lport="$2" label="$3"
   L_PORT="$def_lport"; E_PORT=""; R_PORT=""
+  printf '    本机地址：frpc 能访问到服务所在机器的地址。\n' >&2
+  printf '    同一台机器用 127.0.0.1；若 frpc 在 Docker 容器里，填宿主机内网 IP 或 host.docker.internal\n' >&2
+  LIP="$(ask '本机地址' '127.0.0.1')"
   ask_port_model || return 1
-  svc_append "$(svc_unique_name "$label")" "$type" "127.0.0.1" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "$label"
+  svc_append "$(svc_unique_name "$label")" "$type" "$LIP" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "$label"
   ok "已添加: $label"
-  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> 127.0.0.1:%s\n' \
-    "$(public_addr)" "$E_PORT" "$R_PORT" "$L_PORT" >&2
+  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> %s:%s\n' \
+    "$(public_addr)" "$E_PORT" "$R_PORT" "$LIP" "$L_PORT" >&2
 }
 
 svc_preset_mc_java() { svc_add_port tcp 25565 "mc-java"; }
@@ -268,11 +271,13 @@ svc_preset_mc_bedrock() { svc_add_port udp 19132 "mc-bedrock"; }
 
 svc_preset_emby() {
   L_PORT="8096"; E_PORT=""; R_PORT=""
+  printf '    本机地址：frpc 能访问到 Emby 所在机器的地址（同一台机器用 127.0.0.1）\n' >&2
+  LIP="$(ask '本机地址' '127.0.0.1')"
   ask_port_model || return 1
-  svc_append "$(svc_unique_name emby)" "tcp" "127.0.0.1" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "Emby"
+  svc_append "$(svc_unique_name emby)" "tcp" "$LIP" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "Emby"
   ok "已添加: emby (TCP 转发)"
-  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> 127.0.0.1:%s\n' \
-    "$(public_addr)" "$E_PORT" "$R_PORT" "$L_PORT" >&2
+  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> %s:%s\n' \
+    "$(public_addr)" "$E_PORT" "$R_PORT" "$LIP" "$L_PORT" >&2
 }
 
 svc_add_custom() {
