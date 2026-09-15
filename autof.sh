@@ -475,6 +475,46 @@ svc_preset_emby() {
   ok "已添加 Emby (HTTP $lport -> $domains)"
 }
 
+svc_edit() {
+  svc_list || return 0
+  local n; n="$(ask '要编辑的序号(留空取消)')"
+  [ -n "$n" ] || return 0
+  is_uint "$n" || { err "序号非法"; return 1; }
+  local total; total="$(wc -l < "$SVC_FILE")"
+  [ "$n" -ge 1 ] && [ "$n" -le "$total" ] || { err "序号超出范围"; return 1; }
+  local line name type lip lport rport domains secret mux remark v
+  line="$(sed -n "${n}p" "$SVC_FILE")"
+  IFS='|' read -r name type lip lport rport domains secret mux remark <<< "$line"
+  v="$(ask '名称' "$name")"; name="$v"
+  v="$(ask '本机服务地址' "$lip")"; lip="$v"
+  case "$type" in
+    tcp|udp)
+      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
+      v="$(ask 'frps 内部远端端口 remotePort' "$rport")"; valid_port "$v" && rport="$v"
+      ;;
+    http|https)
+      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
+      v="$(ask '自定义域名' "$domains")"; domains="$v"
+      ;;
+    stcp|xtcp)
+      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
+      v="$(ask 'secretKey' "$secret")"; secret="$v"
+      ;;
+    tcpmux)
+      v="$(ask '本机服务端口 localPort' "$lport")"; valid_port "$v" && lport="$v"
+      v="$(ask 'customDomains' "$domains")"; domains="$v"
+      v="$(ask 'multiplexer' "$mux")"; mux="$v"
+      ;;
+  esac
+  v="$(ask '备注' "$remark")"; remark="$v"
+  local newline="$name|$type|$lip|$lport|$rport|$domains|$secret|$mux|$remark"
+  local tmp; tmp="$(mktemp)"
+  awk -v n="$n" -v nl="$newline" 'NR==n{print nl; next}{print}' "$SVC_FILE" > "$tmp" && mv "$tmp" "$SVC_FILE"
+  save_frps_config
+  save_client_configs
+  ok "已更新序号 $n"
+}
+
 svc_menu() {
   while true; do
     title "添加服务"
@@ -489,7 +529,8 @@ svc_menu() {
     echo "  9) XTCP 点对点"
     echo " 10) TCPMUX"
     echo " 11) 查看已添加"
-    echo " 12) 删除服务"
+    echo " 12) 编辑服务"
+    echo " 13) 删除服务"
     echo "  0) 完成返回"
     local c; c="$(ask '请选择' '0')"
     case "$c" in
@@ -504,7 +545,8 @@ svc_menu() {
       9) svc_add_secret xtcp ;;
       10) svc_add_tcpmux ;;
       11) svc_list ;;
-      12) svc_del ;;
+      12) svc_edit ;;
+      13) svc_del ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -1087,10 +1129,11 @@ view_menu() {
     printf '\n  1) 服务列表\n'
     printf '  2) 预览 frps.toml\n'
     printf '  3) 预览 frpc.toml\n'
-    printf '  4) 停止服务端\n'
-    printf '  5) 重启服务端\n'
-    printf '  6) 查看日志\n'
-    printf '  7) 运行自检\n'
+    printf '  4) 编辑服务(含本机端口)\n'
+    printf '  5) 停止服务端\n'
+    printf '  6) 重启服务端\n'
+    printf '  7) 查看日志\n'
+    printf '  8) 运行自检\n'
     printf '  0) 返回\n'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
@@ -1098,10 +1141,11 @@ view_menu() {
       1) list_services ;;
       2) print_block "frps.toml" "$(gen_frps)" ;;
       3) preview_frpc ;;
-      4) service_ctl stop ;;
-      5) service_ctl restart ;;
-      6) service_ctl logs ;;
-      7) run_selftest ;;
+      4) svc_edit ;;
+      5) service_ctl stop ;;
+      6) service_ctl restart ;;
+      7) service_ctl logs ;;
+      8) run_selftest ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
