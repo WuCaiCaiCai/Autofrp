@@ -2,19 +2,18 @@
 
 在 NAT 型 VPS 上部署 frp 服务端（frps）的交互式脚本，用于把内网服务（Minecraft、Emby 等）暴露到公网。
 
-脚本只跑在**服务端（VPS）**上，不用装在内网机器。
+脚本只跑在**服务端（VPS）**上，不用装在内网机器。全中文引导，照着填就行。
 
-## 两个概念，互不干扰
+## 端口规则（超简单）
 
-1. **frps 控制**：`frpc` 连接 `frps` 的入口，只和穿透本身有关，与具体服务无关。
-   - 内部端口 `bindPort`：VPS 上监听（默认 `7000`，可改）。
-   - 对外端口：服务商网页端映射出来的端口（如 `30085`，可改），`frpc` 用它连接。
-2. **服务**：一个要被访问的内网服务（如 Minecraft），涉及三个端口，**全部可自定义**：
-   - **本机端口**：服务实际监听的端口（如 `25565`）。
-   - **VPS 内部端口**：`frps` 监听的端口，也就是 `frpc` 的 `remotePort`（如 `25565`）。
-   - **对外端口**：玩家连接用的公网端口（如 `30008`）。
+**所有端口都内外一致**，服务商网页端一律映射 `端口 -> 同端口`。
 
-> 服务商网页端的映射规则是 **对外端口 → 内部端口**。例如映射 `30008 → 30008`，则对外=内部=30008；映射 `30008 → 25565`，则对外 `30008`、内部 `25565`。脚本里按实际填即可，两个端口可以不同。
+| 项 | 数量 | 说明 |
+| --- | --- | --- |
+| 控制端口 | 1 个 | `frpc` 连接 `frps` 用，和具体服务无关 |
+| 服务 | 每个 2 个 | **本机端口**（服务实际监听）+ **对外端口**（玩家连接用） |
+
+玩家连接地址永远是 `公网IP:对外端口`。`frpc` 配置里的 `remotePort` 就等于对外端口。
 
 ## 部署
 
@@ -23,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -
 sudo bash autof.sh
 ```
 
-首次运行会先让你**设置 frps 控制**，然后进主界面。结束时提示安装为 `autof` 命令，之后直接：
+首次运行会引导你设置**控制端口**，然后进主界面。结束时提示安装为 `autof` 命令，之后直接：
 
 ```bash
 sudo autof
@@ -38,35 +37,33 @@ sudo autof
   IPv4   NAT IPv4  108.165.122.146
   IPv6   NAT IPv6  2602:f9f3:3000::185
   frps   运行中 / 已停止
-  控制   内部 7000  对外 30085
+  控制端口 30085
 ════════════════════════════════════════════════════════════
 
-  1) 设置 frps 控制
-  2) 服务管理
-  3) 预览/生成配置
-  4) 服务端控制
-  5) 接入检查
-  6) 卸载 Autofrp
+  1) 添加服务
+  2) 查看服务
+  3) 服务端控制
+  4) 预览配置
+  5) 卸载
   0) 退出
 ```
 
-- **设置 frps 控制**：填 `bindPort`（内部）与控制端口对外映射、`auth token`。
-- **服务管理**：`Minecraft Java` / `Minecraft Bedrock` / `Emby` / `其他自定义`（TCP/UDP/STCP/XTCP）；可查看详情、编辑、删除。每个服务依次填**本机端口、对外端口、VPS 内部端口**，全部可自定义。
-- **预览/生成配置**：预览或保存 `frps.toml`、`frpc.toml`。
-- **服务端控制**：安装/更新并启动、停止、重启、状态、日志、卸载。
-- **接入检查**：显示 frps 监听端口、每个服务的玩家连接地址与服务商应设置的映射。
-- **卸载 Autofrp**：删除 frps 服务/程序、配置目录与 `autof` 命令。
+- **添加服务**：`Minecraft Java` / `Minecraft Bedrock` / `Emby` / `自定义 TCP` / `自定义 UDP`。填「本机端口」和「对外端口」即可，加完直接告诉你玩家连接地址。
+- **查看服务**：列表 → 输入序号看详情与该服务完整 `frpc.toml`，可编辑/删除。
+- **服务端控制**：安装/更新并启动、停止、重启、状态、日志、修改控制端口。
+- **预览配置**：`frps.toml` / `frpc.toml` / 保存到文件。
+- **卸载**：完全卸载（服务 + 程序 + 配置 + `autof` 命令）。
 
 ## 完整示例：Minecraft 内网穿透
 
-场景：VPS 是 NAT 型、跑 frps；内网机器跑 Minecraft（监听 `25565`）。演示 **对外 `30008` 映射到内部 `25565`**。
+场景：VPS 是 NAT 型、跑 frps；内网机器跑 Minecraft（监听 `25565`），想让玩家连。
 
-### 1. 服务商网页端设置两条映射
+### 1. 服务商网页端设置两条映射（都是 `X -> X`）
 
 | 外部端口 | 内部端口 | 用途 |
 | --- | --- | --- |
-| `30085` | `7000` | frps 控制端口（frpc 连接） |
-| `30008` | `25565` | Minecraft 数据端口 |
+| `30085` | `30085` | 控制端口 |
+| `30008` | `30008` | Minecraft |
 
 ### 2. VPS 上运行脚本
 
@@ -74,50 +71,38 @@ sudo autof
 sudo autof
 ```
 
-- `1) 设置 frps 控制`：内部端口 `7000`，控制端口对外映射 `30085`，token 回车自动生成。
-- `2) 服务管理` → `1) Minecraft Java`：本机端口 `25565`，对外端口 `30008`，VPS 内部端口 `25565`。
-- `3) 预览/生成配置` → `2) 预览 frpc.toml`：复制结果。
-- `4) 服务端控制` → `1) 安装/更新并启动`。
+- 首次引导：控制端口填 `30085`。
+- `1) 添加服务` → `1) Minecraft Java`：本机端口 `25565`，对外端口 `30008`。
+- `4) 预览配置` → `2) 预览 frpc.toml`：复制结果。
+- `3) 服务端控制` → `1) 安装/更新并启动 frps`。
 
 ### 3. 内网机器上运行 frpc
 
 1. 从 [frp Releases](https://github.com/fatedier/frp/releases) 下载对应平台压缩包，解压得到 `frpc`。
-2. 把上一步复制的 `frpc.toml` 放同目录，内容大致如下：
+2. 把复制的 `frpc.toml` 放同目录，内容大致如下：
 
    ```toml
    # frpc 客户端配置（在内网机器上运行 frpc）
    serverAddr = "108.165.122.146"
    serverPort = 30085
    auth.method = "token"
-   auth.token = "向导生成的token"
+   auth.token = "脚本生成的token"
    transport.tls.enable = true
 
+   # 玩家连接: 108.165.122.146:30008
    [[proxies]]
    name = "mc-java"
    type = "tcp"
    localIP = "127.0.0.1"
    localPort = 25565
-   remotePort = 25565
+   remotePort = 30008
    ```
 
 3. 启动：`./frpc -c frpc.toml`（Windows：`frpc.exe -c frpc.toml`），看到 `start proxy success` 即成功。
 
 ### 4. 验证
 
-玩家连接 **`VPS公网IP:30008`**。
-
-## 端口对照
-
-| 位置 | 值 | 配置位置 |
-| --- | --- | --- |
-| Minecraft 本地监听 | `25565` | 内网机器的 Minecraft |
-| 服务 本机端口 | `25565` | 服务管理里填写 |
-| 服务 VPS 内部端口 = frpc `remotePort` | `25565` | 服务管理里填写 |
-| 服务 对外端口（玩家连接） | `30008` | 服务管理里填写 |
-| 服务商映射 | `30008 → 25565` | 服务商控制台 |
-| frps 控制 内部端口 `bindPort` | `7000` | 设置 frps 控制 |
-| frpc `serverPort` | `30085` | 控制端口对外映射 |
-| 玩家连接 | `公网IP:30008` | 提供给玩家 |
+玩家连接 **`公网IP:30008`**。
 
 ## 命令
 
@@ -131,36 +116,28 @@ sudo autof status       # 运行状态
 sudo autof restart      # 重启
 sudo autof stop         # 停止
 sudo autof logs         # 日志
-sudo autof uninstall    # 完全卸载(服务/程序/配置/autof 命令)
-sudo autof uninstall-keep  # 仅移除 frps，保留配置
+sudo autof uninstall    # 完全卸载
 sudo autof self-update  # 更新脚本自身
 ```
 
-### 卸载
+## 常见问题
 
-```bash
-sudo autof uninstall       # 完全卸载：停服务、删 frps、删配置目录、删 autof 命令
-sudo autof uninstall-keep  # 只删 frps 程序与服务，保留 /etc/autof 配置
-```
+**为什么 `frpc.toml` 里 `remotePort` 不等于玩家端口？**
+它俩本来就相等。`remotePort = 对外端口 = 玩家连接端口`。
 
-也可在主界面 `4) 服务端控制` 里选择 `6) 仅移除 frps` 或 `7) 完全卸载`。
+**端口能连但进不去服务？**
+`nc -vz 公网IP 对外端口` 能连上只说明 frps 通了；问题在 `frpc -> 服务`。本脚本固定 `localIP = 127.0.0.1`，所以 **frpc 必须和服务跑在同一台机器（或同一容器）**。若 frpc 在容器里、服务在宿主机，需要把 `localIP` 改成宿主机地址。
 
-## 故障排查
+**报错 `json: unknown field "allowPorts"`？**
+把 `frps.toml` 当成客户端配置用了。`frpc` 只能用 `autof gen frpc` 的输出。
 
-1. **连不上**：确认服务商网页端映射规则是「对外端口 → 内部端口」，且与脚本里填的**对外端口、VPS 内部端口**一致；控制端口同理（对外 → `bindPort`）。
-2. **token 不一致**：服务端与客户端配置里的 `auth.token` 必须相同。
-3. **报错 `json: unknown field "allowPorts"`**：把 `frps.toml` 当成客户端配置用了。`frpc` 只能用 `autof gen frpc` 输出的配置（只含 `serverAddr`/`serverPort`/`auth`/`[[proxies]]`）。
-4. **端口能连但进不去服务（如 MC）**：`nc -vz 公网IP 对外端口` 能连上，说明隧道通了；问题在 `frpc → 服务`。多半是 `localIP` 不对：
-   - frpc 与服务在同一台机器 → `127.0.0.1`。
-   - **frpc 跑在 Docker 容器里**（如 MSLX）→ `127.0.0.1` 指容器自己，要填宿主机内网 IP 或 `host.docker.internal`，或让容器用 `host` 网络。
-   - 服务在另一台机器 → 填那台机器的内网 IP。
-5. **看日志**：`sudo autof logs`。
+**看日志**：`sudo autof logs`。
 
 ## 文件位置
 
 | 路径 | 说明 |
 | --- | --- |
-| `/etc/autof/state.conf` | 控制端口、token 等 |
+| `/etc/autof/state.conf` | 控制端口、token |
 | `/etc/autof/services.conf` | 服务列表 |
 | `/etc/autof/frps.toml` | 生成的 frps 配置 |
 | `/etc/autof/clients/frpc.toml` | 生成的 frpc 配置 |
