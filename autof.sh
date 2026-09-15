@@ -593,6 +593,8 @@ collect_allow_ports() {
 }
 
 gen_frps() {
+  echo "# frps 服务端配置 —— 在 VPS 上用 frps 启动"
+  echo "# 含 bindPort / allowPorts 等服务端字段，请勿用于 frpc"
   echo "bindAddr = \"$BIND_ADDR\""
   echo "bindPort = $BIND_PORT"
   [ -n "$KCP_PORT" ] && echo "kcpBindPort = $KCP_PORT"
@@ -643,6 +645,8 @@ gen_frpc() {
     [ -n "$server_port" ] || server_port="$BIND_PORT"
   fi
   [ -n "$server_addr" ] || server_addr="你的frps公网地址"
+  echo "# frpc 客户端配置 —— 在运行服务的机器上用 frpc 启动"
+  echo "# 仅含客户端字段；请勿加入 bindPort、allowPorts、webServer 等服务端字段"
   echo "serverAddr = \"$server_addr\""
   echo "serverPort = $server_port"
   echo "auth.method = \"token\""

@@ -182,6 +182,7 @@ sudo autof self-update  # 更新脚本自身
 1. **端口映射**：确认服务商控制台已放行外部端口，且脚本中「外部 → 内部」登记正确。
 2. **认证**：确认服务端与客户端配置中的 `auth.token` 一致。
 3. **服务端状态**：执行 `sudo autof status` 与 `sudo autof logs` 检查报错。
+4. **报错 `json: unknown field "allowPorts"`**：把服务端配置（`frps.toml`）当成客户端配置用了。`allowPorts`、`bindPort`、`webServer`、`vhostHTTPPort` 等均为**服务端专有字段**，客户端会拒绝。frpc 应使用 `autof gen frpc` 输出的配置（或 `/etc/autof/clients/frpc-v4.toml`），其中只含 `serverAddr`、`serverPort`、`auth`、`[[proxies]]`。
 
 其他：域名建站须将域名解析至 VPS 公网 IP；防火墙与安全组须放行对应端口。
 
