@@ -18,7 +18,7 @@ SVC_FILE="$STATE_DIR/services.conf"
 OLD_NAT_FILE="$STATE_DIR/nat_ports.conf"
 FRPS_CONF="$STATE_DIR/frps.toml"
 CLIENT_DIR="$STATE_DIR/clients"
-MIGRATE_FLAG="$STATE_DIR/.migrated_v2"
+MIGRATE_FLAG="$STATE_DIR/.migrated_v3"
 
 if [ -t 1 ]; then
   C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
@@ -85,21 +85,30 @@ save_state() {
 
 migrate_old() {
   [ -f "$MIGRATE_FLAG" ] && return 0
-  local e tmp
+  local e tmp line nf name type lip lport p5 dom sec mux rem remote external
   [ -n "${BIND_PORT:-}" ] && CONTROL_IN="$BIND_PORT"
   if [ -z "$CONTROL_OUT" ] && [ -f "$OLD_NAT_FILE" ]; then
     e="$(awk -F'|' -v p="$CONTROL_IN" '$2==p{print $1; exit}' "$OLD_NAT_FILE" 2>/dev/null)"
     [ -n "$e" ] && CONTROL_OUT="$e"
   fi
-  if [ -s "$SVC_FILE" ] && [ -f "$OLD_NAT_FILE" ]; then
+  if [ -s "$SVC_FILE" ]; then
     tmp="$(mktemp)"
-    while IFS='|' read -r n t lip lport p5 dom sec mux rem; do
-      [ -n "$n" ] || continue
-      if [ "$t" = "tcp" ] || [ "$t" = "udp" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      nf="$(awk -F'|' '{print NF}' <<< "$line")"
+      if [ "$nf" -ge 10 ]; then printf '%s\n' "$line" >> "$tmp"; continue; fi
+      IFS='|' read -r name type lip lport p5 dom sec mux rem <<< "$line"
+      remote=""; external=""
+      if [ "$type" = "tcp" ] || [ "$type" = "udp" ]; then
         e="$(awk -F'|' -v p="$p5" '$2==p{print $1; exit}' "$OLD_NAT_FILE" 2>/dev/null)"
-        [ -n "$e" ] && p5="$e"
+        if [ -n "$e" ]; then
+          remote="$p5"; external="$e"
+        else
+          e="$(awk -F'|' -v p="$p5" '$1==p{print $2; exit}' "$OLD_NAT_FILE" 2>/dev/null)"
+          if [ -n "$e" ]; then remote="$e"; external="$p5"; else remote="$p5"; external="$p5"; fi
+        fi
       fi
-      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$n" "$t" "$lip" "$lport" "$p5" "$dom" "$sec" "$mux" "$rem" >> "$tmp"
+      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$name" "$type" "$lip" "$lport" "$remote" "$external" "$dom" "$sec" "$mux" "$rem" >> "$tmp"
     done < "$SVC_FILE"
     mv "$tmp" "$SVC_FILE"
   fi
@@ -180,18 +189,19 @@ svc_unique_name() {
   printf '%s' "$name"
 }
 
-svc_append() { printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" >> "$SVC_FILE"; }
+svc_append() { printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" >> "$SVC_FILE"; }
 
 svc_list() {
   if [ ! -s "$SVC_FILE" ]; then warn "暂无服务"; return 0; fi
-  printf '  %-4s %-14s %-6s %-9s %-9s %s\n' "序号" "名称" "类型" "本机端口" "对外端口" "备注"
+  printf '  %-4s %-12s %-6s %-8s %-8s %-8s %s\n' "序号" "名称" "类型" "本机" "内部" "对外" "备注"
   hr
-  local i=0 name type lip lport out dom sec mux rem
-  while IFS='|' read -r name type lip lport out dom sec mux rem; do
+  local i=0 name type lip lport remote external dom sec mux rem
+  while IFS='|' read -r name type lip lport remote external dom sec mux rem; do
     [ -n "$name" ] || continue
     i=$((i + 1))
-    [ -n "$out" ] || out="-"
-    printf '  %-4s %-14s %-6s %-9s %-9s %s\n' "$i" "$name" "$type" "$lport" "$out" "$rem"
+    [ -n "$remote" ] || remote="-"
+    [ -n "$external" ] || external="-"
+    printf '  %-4s %-12s %-6s %-8s %-8s %-8s %s\n' "$i" "$name" "$type" "$lport" "$remote" "$external" "$rem"
   done < "$SVC_FILE"
 }
 
@@ -210,116 +220,111 @@ svc_pick() {
 svc_detail() {
   svc_pick || return 1
   local n="$PICK"
-  local line name type lip lport out dom sec mux rem
+  local line name type lip lport remote external dom sec mux rem
   line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
+  IFS='|' read -r name type lip lport remote external dom sec mux rem <<< "$line"
   title "服务: $name"
   printf '  %-10s %s\n' "类型" "$type"
   printf '  %-10s %s\n' "本机" "$lip:$lport"
   case "$type" in
-    tcp|udp) printf '  %-10s %s\n' "对外端口" "$out";;
-    http|https) printf '  %-10s %s\n' "域名" "$dom";;
+    tcp|udp)
+      printf '  %-10s %s\n' "VPS 内部" "$remote"
+      printf '  %-10s %s\n' "对外端口" "$external"
+      printf '  %-10s %s\n' "玩家连接" "$(public_addr):$external"
+      printf '  %-10s %s\n' "NAT 映射" "外部 $external -> 内部 $remote"
+      ;;
+    stcp|xtcp) printf '  %-10s %s\n' "secretKey" "$sec";;
   esac
   [ -n "$rem" ] && printf '  %-10s %s\n' "备注" "$rem"
   printf '\n'
   print_block "该服务完整 frpc.toml (可直接复制)" "$(gen_frpc_single "$n")"
 }
 
-svc_add_common() {
-  local type="$1" name="$2" lip="$3" lport="$4" out="$5" dom="$6" sec="$7" mux="$8" rem="$9"
-  svc_append "$name" "$type" "$lip" "$lport" "$out" "$dom" "$sec" "$mux" "$rem"
-  ok "已添加: $name"
+ask_port_model() {
+  printf '    本机端口：你机器上服务实际监听的端口（如 MC 的 25565）\n' >&2
+  L_PORT="$(ask '本机端口' "${L_PORT:-}")"
+  valid_port "$L_PORT" || { err "本机端口非法"; return 1; }
+  printf '    对外端口：玩家连接用的公网端口（服务商网页端映射出来的那个）\n' >&2
+  E_PORT="$(ask '对外端口' "${E_PORT:-$L_PORT}")"
+  valid_port "$E_PORT" || { err "对外端口非法"; return 1; }
+  printf '    VPS 内部端口：frps 监听的端口(remotePort)，默认同对外；\n' >&2
+  printf '    若服务商映射是「外部 30008 -> 内部 25565」，这里就填 25565\n' >&2
+  R_PORT="$(ask 'VPS 内部端口(remotePort)' "$E_PORT")"
+  valid_port "$R_PORT" || { err "内部端口非法"; return 1; }
 }
 
 svc_add_port() {
-  local type="$1" def_lport="$2" def_out="$3" label="$4"
-  local lport out
-  printf '    本机端口：你机器上服务实际监听的端口\n' >&2
-  lport="$(ask "本机端口($label)" "$def_lport")"
-  valid_port "$lport" || { err "本机端口非法"; return 1; }
-  printf '    对外端口：玩家连接用，同时作为 frps 的 remotePort（服务商网页端请映射 对外->对外）\n' >&2
-  out="$(ask '对外端口' "${def_out:-$lport}")"
-  valid_port "$out" || { err "对外端口非法"; return 1; }
-  svc_add_common "$type" "$(svc_unique_name "$label")" "127.0.0.1" "$lport" "$out" "" "" "" "$label"
+  local type="$1" def_lport="$2" label="$3"
+  L_PORT="$def_lport"; E_PORT=""; R_PORT=""
+  ask_port_model || return 1
+  svc_append "$(svc_unique_name "$label")" "$type" "127.0.0.1" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "$label"
+  ok "已添加: $label"
+  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> 127.0.0.1:%s\n' \
+    "$(public_addr)" "$E_PORT" "$R_PORT" "$L_PORT" >&2
 }
 
-svc_preset_mc_java() { svc_add_port tcp 25565 "" "mc-java"; }
-svc_preset_mc_bedrock() { svc_add_port udp 19132 "" "mc-bedrock"; }
+svc_preset_mc_java() { svc_add_port tcp 25565 "mc-java"; }
+svc_preset_mc_bedrock() { svc_add_port udp 19132 "mc-bedrock"; }
 
 svc_preset_emby() {
-  local lport dom
-  printf '    本机端口：Emby 实际监听端口\n' >&2
-  lport="$(ask 'Emby 本机端口' '8096')"
-  valid_port "$lport" || { err "端口非法"; return 1; }
-  dom="$(ask '访问域名')"
-  [ -n "$dom" ] || { err "域名不能为空"; return 1; }
-  svc_add_common http "$(svc_unique_name emby)" "127.0.0.1" "$lport" "" "$dom" "" "" "Emby"
+  L_PORT="8096"; E_PORT=""; R_PORT=""
+  ask_port_model || return 1
+  svc_append "$(svc_unique_name emby)" "tcp" "127.0.0.1" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" "Emby"
+  ok "已添加: emby (TCP 转发)"
+  printf '  链路: 玩家 -> %s:%s --(NAT)--> VPS:%s --(frp)--> 127.0.0.1:%s\n' \
+    "$(public_addr)" "$E_PORT" "$R_PORT" "$L_PORT" >&2
 }
 
 svc_add_custom() {
   title "其他自定义"
-  echo "  1) TCP   2) UDP   3) HTTP   4) HTTPS   5) STCP   6) XTCP   7) TCPMUX"
+  echo "  1) TCP   2) UDP   3) STCP   4) XTCP"
   local c; c="$(ask '类型' '1')"
-  local type lip lport out="" dom="" sec="" mux="" name
+  local type lip lport remote external sec name
   case "$c" in
-    1) type=tcp;; 2) type=udp;; 3) type=http;; 4) type=https;;
-    5) type=stcp;; 6) type=xtcp;; 7) type=tcpmux;;
+    1) type=tcp;; 2) type=udp;; 3) type=stcp;; 4) type=xtcp;;
     *) warn "无效类型"; return 1;;
   esac
   name="$(ask '名称' "$(svc_unique_name "$type")")"
   lip="$(ask '本机地址' '127.0.0.1')"
-  printf '    本机端口：服务实际监听端口\n' >&2
-  lport="$(ask '本机端口')"
-  valid_port "$lport" || { err "本机端口非法"; return 1; }
   case "$type" in
     tcp|udp)
-      printf '    对外端口：玩家连接用，同时作为 frps 的 remotePort（服务商网页端映射 对外->对外）\n' >&2
-      out="$(ask '对外端口' "$lport")"
-      valid_port "$out" || { err "对外端口非法"; return 1; }
-      ;;
-    http|https)
-      dom="$(ask '自定义域名(多个用逗号分隔)')"
-      [ -n "$dom" ] || { err "域名不能为空"; return 1; }
+      L_PORT=""; E_PORT=""; R_PORT=""
+      ask_port_model || return 1
+      svc_append "$name" "$type" "$lip" "$L_PORT" "$R_PORT" "$E_PORT" "" "" "" ""
       ;;
     stcp|xtcp)
+      printf '    本机端口：服务实际监听端口\n' >&2
+      lport="$(ask '本机端口')"
+      valid_port "$lport" || { err "本机端口非法"; return 1; }
       sec="$(ask 'secretKey' "$(gen_token)")"
-      ;;
-    tcpmux)
-      dom="$(ask 'customDomains')"
-      mux="$(ask 'multiplexer' 'httpconnect')"
+      svc_append "$name" "$type" "$lip" "$lport" "" "" "" "$sec" "" ""
       ;;
   esac
-  svc_add_common "$type" "$name" "$lip" "$lport" "$out" "$dom" "$sec" "$mux" ""
+  ok "已添加: $name"
 }
 
 svc_edit() {
   svc_pick || return 1
   local n="$PICK"
-  local line name type lip lport out dom sec mux rem v
+  local line name type lip lport remote external dom sec mux rem v
   line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
+  IFS='|' read -r name type lip lport remote external dom sec mux rem <<< "$line"
   v="$(ask '名称' "$name")"; name="$v"
   v="$(ask '本机地址' "$lip")"; lip="$v"
   printf '    本机端口：服务实际监听端口\n' >&2
   v="$(ask '本机端口' "$lport")"; valid_port "$v" && lport="$v"
   case "$type" in
     tcp|udp)
-      printf '    对外端口：玩家连接用，也是 frps 的 remotePort\n' >&2
-      v="$(ask '对外端口' "$out")"; valid_port "$v" && out="$v"
-      ;;
-    http|https)
-      v="$(ask '域名' "$dom")"; dom="$v"
+      printf '    对外端口：玩家连接用；VPS 内部端口：frps 监听的 remotePort\n' >&2
+      v="$(ask '对外端口' "$external")"; valid_port "$v" && external="$v"
+      v="$(ask 'VPS 内部端口(remotePort)' "$remote")"; valid_port "$v" && remote="$v"
       ;;
     stcp|xtcp)
       v="$(ask 'secretKey' "$sec")"; sec="$v"
       ;;
-    tcpmux)
-      v="$(ask 'customDomains' "$dom")"; dom="$v"
-      v="$(ask 'multiplexer' "$mux")"; mux="$v"
-      ;;
   esac
   v="$(ask '备注' "$rem")"; rem="$v"
-  local newline="$name|$type|$lip|$lport|$out|$dom|$sec|$mux|$rem"
+  local newline="$name|$type|$lip|$lport|$remote|$external|$dom|$sec|$mux|$rem"
   local tmp; tmp="$(mktemp)"
   awk -v n="$n" -v nl="$newline" 'NR==n{print nl; next}{print}' "$SVC_FILE" > "$tmp" && mv "$tmp" "$SVC_FILE"
   save_frps_config
@@ -342,8 +347,8 @@ svc_menu() {
     draw_header
     svc_list
     printf '\n  1) Minecraft Java    2) Minecraft Bedrock   3) Emby\n'
-    printf '  4) 其他自定义        5) 查看服务详情\n'
-    printf '  6) 编辑服务          7) 删除服务\n'
+    printf '  4) 其他自定义(TCP/UDP/STCP/XTCP)\n'
+    printf '  5) 查看服务详情      6) 编辑服务      7) 删除服务\n'
     printf '  0) 返回\n'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
@@ -364,17 +369,10 @@ svc_menu() {
   done
 }
 
-domains_to_toml() {
-  local d="$1" out="" x
-  IFS=',' read -ra arr <<< "$d"
-  for x in "${arr[@]}"; do x="${x// /}"; [ -n "$x" ] && out="${out}\"${x}\", "; done
-  printf '[%s]' "${out%, }"
-}
-
 gen_frpc_proxy() {
-  local n="$1" line name type lip lport out dom sec mux rem
+  local n="$1" line name type lip lport remote external dom sec mux rem
   line="$(sed -n "${n}p" "$SVC_FILE")"
-  IFS='|' read -r name type lip lport out dom sec mux rem <<< "$line"
+  IFS='|' read -r name type lip lport remote external dom sec mux rem <<< "$line"
   [ -n "$name" ] || return 1
   [ -n "$rem" ] && echo "# $rem"
   echo "[[proxies]]"
@@ -384,23 +382,12 @@ gen_frpc_proxy() {
     tcp|udp)
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
-      echo "remotePort = $out"
-      ;;
-    http|https)
-      echo "localIP = \"$lip\""
-      echo "localPort = $lport"
-      echo "customDomains = $(domains_to_toml "$dom")"
+      echo "remotePort = $remote"
       ;;
     stcp|xtcp)
       echo "secretKey = \"$sec\""
       echo "localIP = \"$lip\""
       echo "localPort = $lport"
-      ;;
-    tcpmux)
-      echo "multiplexer = \"$mux\""
-      echo "localIP = \"$lip\""
-      echo "localPort = $lport"
-      echo "customDomains = $(domains_to_toml "$dom")"
       ;;
   esac
 }
