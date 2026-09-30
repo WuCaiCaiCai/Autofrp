@@ -56,6 +56,12 @@ confirm() {
   case "$ans" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 
+confirm_yes() {
+  local ans=""
+  read -rp "${C_CYAN}$1${C_RST} [Y/n]: " ans || true
+  case "$ans" in n|N|no|NO) return 1;; *) return 0;; esac
+}
+
 is_uint() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 valid_port() { is_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 gen_token() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 24; }
@@ -480,22 +486,24 @@ server_menu() {
     [ -t 1 ] && clear
     draw_header
     title "frps 管理"
-    menu_item 1 '停止'
-    menu_item 2 '重启'
-    menu_item 3 '状态'
-    menu_item 4 '日志'
-    menu_item 5 '修改控制端口'
-    menu_item 6 '网络偏好（IPv4 / IPv6 / 均可）'
+    menu_item 1 '启动'
+    menu_item 2 '停止'
+    menu_item 3 '重启'
+    menu_item 4 '状态'
+    menu_item 5 '日志'
+    menu_item 6 '修改控制端口'
+    menu_item 7 '网络偏好（IPv4 / IPv6 / 均可）'
     menu_item 0 '返回'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
     case "$c" in
-      1) service_ctl stop ;;
-      2) service_ctl restart ;;
-      3) service_ctl status ;;
-      4) service_ctl logs ;;
-      5) setup_control ;;
-      6) setup_net_pref ;;
+      1) service_ctl start ;;
+      2) service_ctl stop ;;
+      3) service_ctl restart ;;
+      4) service_ctl status ;;
+      5) service_ctl logs ;;
+      6) setup_control ;;
+      7) setup_net_pref ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -589,6 +597,7 @@ service_ctl() {
     return 0
   fi
   case "$action" in
+    start) systemctl start frps && ok "已启动";;
     status) systemctl status frps --no-pager;;
     restart) systemctl restart frps && ok "已重启";;
     stop) systemctl stop frps && ok "已停止";;
@@ -652,6 +661,19 @@ maybe_install_prompt() {
   confirm "是否安装为命令 $APP（以后直接运行）?" && self_install
 }
 
+ensure_frps() {
+  pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1 && return 0
+  if [ "$(id -u)" != "0" ]; then
+    warn "frps 未运行：安装/启动需要 root，请用 sudo 运行"
+    return 0
+  fi
+  if [ -x /usr/local/bin/frps ]; then
+    confirm_yes "frps 未运行，是否现在启动？" && service_ctl start
+  else
+    confirm_yes "未检测到 frps，是否现在自动下载并启动？" && install_frps
+  fi
+}
+
 main_screen() {
   load_state
   detect_env
@@ -660,17 +682,17 @@ main_screen() {
     setup_control
   fi
   maybe_install_prompt
+  ensure_frps
+  local first=1
   while true; do
-    [ -t 1 ] && clear
+    if [ -t 1 ] && [ "$first" = 0 ]; then clear; fi
+    first=0
     draw_header
-    if ! pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-      warn "frps 未运行：选「3) 安装 / 启动 frps」下载并启动"
-    fi
     printf '\n'
     menu_item 1 '添加穿透服务'
     menu_item 2 '管理服务 / 打印 frpc 配置'
     menu_item 3 '安装 / 启动 frps'
-    menu_item 4 'frps 管理（状态·日志·重启·停止·控制端口·网络偏好）'
+    menu_item 4 'frps 管理（启动·停止·重启·状态·日志·控制端口·网络偏好）'
     menu_item 5 '卸载'
     menu_item 0 '退出'
     local c; c="$(ask '请选择' '0')"
@@ -697,7 +719,7 @@ $APP - NAT 小鸡 frps 一键工具
   $APP gen frpc        打印 frpc.toml
   $APP install         安装并启动 frps
   $APP net 4|6|both    设置网络偏好（IPv4 / IPv6 / 均可）
-  $APP status|restart|stop|logs
+  $APP start|stop|restart|status|logs
   $APP uninstall       完全卸载（服务/程序/配置/命令）
   $APP self-install    安装为 /usr/local/bin/$APP
   $APP self-update     更新脚本自身
@@ -729,7 +751,7 @@ main() {
         *) die "用法: $APP net 4|6|both";;
       esac
       ;;
-    status|restart|stop|logs) service_ctl "$1" ;;
+    start|stop|restart|status|logs) service_ctl "$1" ;;
     uninstall) uninstall_all ;;
     self-install) self_install ;;
     self-update) self_update ;;

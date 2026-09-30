@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -
 sudo bash autof.sh
 ```
 
-首次运行会引导设置**控制端口**，随后进入主界面。结束时可安装为 `autof` 命令，之后直接：
+首次运行会引导设置**控制端口**；若未检测到 `frps`，会询问是否自动下载并启动。结束时可安装为 `autof` 命令，之后直接：
 
 ```bash
 sudo autof
@@ -46,7 +46,7 @@ sudo autof
   1) 添加穿透服务
   2) 管理服务 / 打印 frpc 配置
   3) 安装 / 启动 frps
-  4) frps 管理（状态·日志·重启·停止·控制端口·网络偏好）
+  4) frps 管理（启动·停止·重启·状态·日志·控制端口·网络偏好）
   5) 卸载
   0) 退出
 ```
@@ -56,7 +56,7 @@ sudo autof
 - **添加穿透服务**：`Minecraft Java`（TCP，本机 `25565`）/ `Minecraft Bedrock`（UDP，本机 `19132`）/ `自定义 TCP` / `自定义 UDP`。端口可改，对外端口默认与本机相同；加完直接告诉你玩家连接地址。
 - **管理服务 / 打印 frpc 配置**：列表里输入序号可查看 / 编辑 / 删除单个服务；输入 `a` 一次性打印完整 `frpc.toml`，复制到内网机器即可。
 - **安装 / 启动 frps**：下载 frps（GitHub + 镜像回退）并注册 systemd 启动。
-- **frps 管理**：停止、重启、状态、日志、修改控制端口、网络偏好。
+- **frps 管理**：启动、停止、重启、状态、日志、修改控制端口、网络偏好。
 - **卸载**：完全卸载（服务 + 程序 + 配置 + `autof` 命令）。
 
 ## 端口规则
@@ -144,6 +144,7 @@ sudo autof gen frps     # 打印 frps.toml
 sudo autof gen frpc     # 打印 frpc.toml
 sudo autof install      # 安装并启动 frps
 sudo autof net 4        # 网络偏好：仅 IPv4（6=仅 IPv6，both=均可）
+sudo autof start        # 启动
 sudo autof status       # 运行状态
 sudo autof restart      # 重启
 sudo autof stop         # 停止
