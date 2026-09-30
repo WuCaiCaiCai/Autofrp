@@ -6,7 +6,7 @@
 set -u
 
 APP="autof"
-VERSION="1.1.0"
+VERSION="1.1.1"
 SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh}"
 
 if [ "$(id -u)" = "0" ] || [ -w /etc ]; then
