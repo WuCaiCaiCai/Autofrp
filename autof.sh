@@ -186,7 +186,7 @@ RULE_HEAVY="$(printf '═%.0s' {1..60})"
 RULE_LIGHT="$(printf '─%.0s' {1..60})"
 
 draw_header() {
-  local st stc v4mark="" v6mark="" pid=""
+  local st v4mark="" v6mark="" pid="" sname stype slport spublic sremark
   if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
     st="${C_GREEN}● 运行中${C_RST}"
     pid=" ${C_DIM}(PID $(pgrep -f '/usr/local/bin/frps' | head -1))${C_RST}"
@@ -195,7 +195,7 @@ draw_header() {
   fi
   case "$IP_PREF" in
     6) v6mark=" ${C_GREEN}◀ 首选${C_RST}";;
-    both) v4mark=" ${C_GREEN}◀ 首选${C_RST}"; v6mark=" ${C_DIM}(备选)${C_RST}";;
+    both) v4mark=" ${C_GREEN}◀ 首选${C_RST}"; v6mark=" ${C_DIM}（备选）${C_RST}";;
     *) v4mark=" ${C_GREEN}◀ 首选${C_RST}";;
   esac
   printf '%s\n' "${C_CYAN}${RULE_HEAVY}${C_RST}"
@@ -205,6 +205,13 @@ draw_header() {
   printf '  %sIPv6%s  %s  %s%s\n' "$C_CYAN" "$C_RST" "${V6_STATUS:-未探测}" "${PUBLIC_IP6:-}" "$v6mark"
   printf '  %s状态%s  %s%s\n' "$C_CYAN" "$C_RST" "$st" "$pid"
   printf '  %s控制端口%s %s    %s网络偏好%s %s\n' "$C_CYAN" "$C_RST" "${CONTROL_PORT:-未设置}" "$C_CYAN" "$C_RST" "$(net_pref_label)"
+  if [ -s "$SVC_FILE" ]; then
+    printf '  %s── 穿透服务 ──%s\n' "$C_DIM" "$C_RST"
+    while IFS='|' read -r sname stype slport spublic sremark; do
+      [ -n "$sname" ] || continue
+      printf '  %-14s %s%-4s%s %s → %s\n' "$sname" "$C_CYAN" "$stype" "$C_RST" "$slport" "$spublic"
+    done < "$SVC_FILE"
+  fi
   printf '%s\n' "${C_CYAN}${RULE_HEAVY}${C_RST}"
 }
 
@@ -228,7 +235,7 @@ svc_read() {
 }
 
 svc_list() {
-  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请先「添加服务」"; return 0; fi
+  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请先「添加穿透服务」"; return 0; fi
   printf '  %s%-4s %-14s %-5s %-9s %-9s %s%s\n' "$C_BOLD" "序号" "名称" "类型" "本机端口" "对外端口" "备注" "$C_RST"
   hr
   local i=0 name type lport public remark tcolor
@@ -241,7 +248,7 @@ svc_list() {
 }
 
 svc_pick() {
-  [ -s "$SVC_FILE" ] || { warn "暂无服务，请先「添加服务」"; return 1; }
+  [ -s "$SVC_FILE" ] || { warn "暂无服务，请先「添加穿透服务」"; return 1; }
   svc_list >&2
   local n; n="$(ask '输入序号（留空取消）')"
   [ -n "$n" ] || return 1
@@ -265,8 +272,8 @@ add_service() {
   printf '  → 玩家连接: %s:%s\n' "$(public_addr)" "$public" >&2
 }
 
-svc_view() {
-  local n; n="$(svc_pick)" || return 0
+svc_detail() {
+  local n="$1"
   svc_read "$n" || { err "读取服务失败"; return 1; }
   title "服务: $S_NAME"
   printf '  %-10s %s\n' "类型" "$S_TYPE"
@@ -275,13 +282,36 @@ svc_view() {
   printf '  %-10s %s\n' "玩家连接" "$(public_addr):$S_PUBLIC"
   [ -n "$S_REMARK" ] && printf '  %-10s %s\n' "备注" "$S_REMARK"
   printf '\n'
-  print_block "该服务完整 frpc.toml" "$(gen_frpc "$n")"
+  print_block "该服务 frpc 片段" "$(gen_frpc "$n")"
   printf '  1) 编辑   2) 删除   0) 返回\n'
   local c; c="$(ask '请选择' '0')"
   case "$c" in
     1) svc_edit "$n" ;;
     2) svc_del "$n" ;;
   esac
+}
+
+svc_manage() {
+  while true; do
+    if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请先「添加穿透服务」"; return 0; fi
+    [ -t 1 ] && clear
+    draw_header
+    title "管理服务"
+    svc_list >&2
+    printf '\n'
+    printf '  输入序号=查看/编辑/删除    a=打印完整 frpc.toml    回车=返回\n' >&2
+    local c; c="$(ask '请选择')"
+    printf '\n'
+    case "$c" in
+      "") return 0 ;;
+      a|A) print_block "frpc.toml（复制到内网机器运行 frpc -c frpc.toml）" "$(gen_frpc)"; pause_key ;;
+      *[!0-9]*) warn "无效选项"; pause_key ;;
+      *)
+        [ "$c" -ge 1 ] && [ "$c" -le "$(svc_count)" ] || { warn "序号超出范围"; pause_key; continue; }
+        svc_detail "$c"
+        ;;
+    esac
+  done
 }
 
 svc_edit() {
@@ -314,21 +344,19 @@ svc_del() {
 
 add_menu() {
   while true; do
-    title "添加服务"
-    menu_item 1 'Minecraft Java    （TCP 25565）'
-    menu_item 2 'Minecraft Bedrock （UDP 19132）'
-    menu_item 3 'Emby              （TCP 8096）'
-    menu_item 4 '自定义 TCP'
-    menu_item 5 '自定义 UDP'
+    title "添加穿透服务"
+    menu_item 1 'Minecraft Java     （TCP，本机 25565）'
+    menu_item 2 'Minecraft Bedrock  （UDP，本机 19132）'
+    menu_item 3 '自定义 TCP'
+    menu_item 4 '自定义 UDP'
     menu_item 0 '返回'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
     case "$c" in
       1) add_service tcp 25565 mc-java ;;
       2) add_service udp 19132 mc-bedrock ;;
-      3) add_service tcp 8096 emby ;;
-      4) add_service tcp "" tcp yes ;;
-      5) add_service udp "" udp yes ;;
+      3) add_service tcp "" tcp yes ;;
+      4) add_service udp "" udp yes ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -451,7 +479,7 @@ server_menu() {
   while true; do
     [ -t 1 ] && clear
     draw_header
-    printf '\n'
+    title "frps 管理"
     menu_item 1 '停止'
     menu_item 2 '重启'
     menu_item 3 '状态'
@@ -468,28 +496,6 @@ server_menu() {
       4) service_ctl logs ;;
       5) setup_control ;;
       6) setup_net_pref ;;
-      0) return 0 ;;
-      *) warn "无效选项" ;;
-    esac
-    pause_key
-  done
-}
-
-preview_menu() {
-  while true; do
-    [ -t 1 ] && clear
-    draw_header
-    printf '\n'
-    menu_item 1 '预览 frps.toml'
-    menu_item 2 '预览 frpc.toml'
-    menu_item 3 '保存到文件'
-    menu_item 0 '返回'
-    local c; c="$(ask '请选择' '0')"
-    printf '\n'
-    case "$c" in
-      1) print_block "frps.toml" "$(gen_frps)" ;;
-      2) print_block "frpc.toml" "$(gen_frpc)" ;;
-      3) save_configs; ok "已保存: $FRPS_CONF 与 $CLIENT_DIR/frpc.toml" ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -658,24 +664,22 @@ main_screen() {
     [ -t 1 ] && clear
     draw_header
     if ! pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
-      warn "frps 未运行：选「3) 安装/启动 frps」下载并启动"
+      warn "frps 未运行：选「3) 安装 / 启动 frps」下载并启动"
     fi
     printf '\n'
-    menu_item 1 '添加服务'
-    menu_item 2 '查看服务'
-    menu_item 3 '安装/启动 frps'
-    menu_item 4 '服务端控制'
-    menu_item 5 '预览配置'
-    menu_item 6 '卸载'
+    menu_item 1 '添加穿透服务'
+    menu_item 2 '管理服务 / 打印 frpc 配置'
+    menu_item 3 '安装 / 启动 frps'
+    menu_item 4 'frps 管理（状态·日志·重启·停止·控制端口·网络偏好）'
+    menu_item 5 '卸载'
     menu_item 0 '退出'
     local c; c="$(ask '请选择' '0')"
     case "$c" in
       1) add_menu ;;
-      2) svc_view ;;
+      2) svc_manage ;;
       3) install_frps ;;
       4) server_menu ;;
-      5) preview_menu ;;
-      6) uninstall_all && return 0 ;;
+      5) uninstall_all && return 0 ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
