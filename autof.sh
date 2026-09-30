@@ -241,7 +241,7 @@ svc_read() {
 }
 
 svc_list() {
-  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请先「添加穿透服务」"; return 0; fi
+  if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请在「管理服务」中按 a 添加"; return 0; fi
   printf '  %s%-4s %-14s %-5s %-9s %-9s %s%s\n' "$C_BOLD" "序号" "名称" "类型" "本机端口" "对外端口" "备注" "$C_RST"
   hr
   local i=0 name type lport public remark tcolor
@@ -254,7 +254,7 @@ svc_list() {
 }
 
 svc_pick() {
-  [ -s "$SVC_FILE" ] || { warn "暂无服务，请先「添加穿透服务」"; return 1; }
+  [ -s "$SVC_FILE" ] || { warn "暂无服务，请在「管理服务」中按 a 添加"; return 1; }
   svc_list >&2
   local n; n="$(ask '输入序号（留空取消）')"
   [ -n "$n" ] || return 1
@@ -299,18 +299,22 @@ svc_detail() {
 
 svc_manage() {
   while true; do
-    if [ ! -s "$SVC_FILE" ]; then warn "暂无服务，请先「添加穿透服务」"; return 0; fi
     [ -t 1 ] && clear
     draw_header
     title "管理服务"
-    svc_list >&2
+    if [ -s "$SVC_FILE" ]; then
+      svc_list >&2
+    else
+      printf '  （暂无服务）\n' >&2
+    fi
     printf '\n'
-    printf '  输入序号=查看/编辑/删除    a=打印完整 frpc.toml    回车=返回\n' >&2
+    printf '  输入序号=查看/编辑/删除    a=添加服务    p=打印 frpc.toml    回车=返回\n' >&2
     local c; c="$(ask '请选择')"
     printf '\n'
     case "$c" in
       "") return 0 ;;
-      a|A) print_block "frpc.toml（复制到内网机器运行 frpc -c frpc.toml）" "$(gen_frpc)"; pause_key ;;
+      a|A) add_menu ;;
+      p|P) print_block "frpc.toml（复制到内网机器运行 frpc -c frpc.toml）" "$(gen_frpc)"; pause_key ;;
       *[!0-9]*) warn "无效选项"; pause_key ;;
       *)
         [ "$c" -ge 1 ] && [ "$c" -le "$(svc_count)" ] || { warn "序号超出范围"; pause_key; continue; }
@@ -447,7 +451,7 @@ apply_config() {
 }
 
 setup_control() {
-  title "首次配置：设置控制端口"
+  title "设置控制端口"
   printf '  控制端口是 frpc 连接 frps 用的，和具体服务无关，只需要一个。\n' >&2
   printf '  请在服务商网页端把它映射为「端口 → 同端口」。\n' >&2
   local v t
@@ -674,12 +678,21 @@ ensure_frps() {
   fi
 }
 
+first_setup() {
+  title "首次配置"
+  printf '  已自动检测网络并选择偏好：%s\n' "$(net_pref_label)" >&2
+  printf '    IPv4  %s  %s\n' "${V4_STATUS:-无}" "${PUBLIC_IP:-}" >&2
+  printf '    IPv6  %s  %s\n' "${V6_STATUS:-无}" "${PUBLIC_IP6:-}" >&2
+  printf '\n' >&2
+  setup_control
+}
+
 main_screen() {
   load_state
   detect_env
   save_state
   if [ -z "$CONTROL_PORT" ]; then
-    setup_control
+    first_setup
   fi
   maybe_install_prompt
   ensure_frps
@@ -689,20 +702,18 @@ main_screen() {
     first=0
     draw_header
     printf '\n'
-    menu_item 1 '添加穿透服务'
-    menu_item 2 '管理服务 / 打印 frpc 配置'
-    menu_item 3 '安装 / 启动 frps'
-    menu_item 4 'frps 管理（启动·停止·重启·状态·日志·控制端口·网络偏好）'
-    menu_item 5 '卸载'
-    menu_item 0 '退出'
-    local c; c="$(ask '请选择' '0')"
+    menu_item 1 '启动服务'
+    menu_item 2 '管理服务'
+    menu_item 3 'frps 管理'
+    menu_item 4 '卸载'
+    menu_item 5 '退出'
+    local c; c="$(ask '请选择')"
     case "$c" in
-      1) add_menu ;;
+      1) install_frps ;;
       2) svc_manage ;;
-      3) install_frps ;;
-      4) server_menu ;;
-      5) uninstall_all && return 0 ;;
-      0) return 0 ;;
+      3) server_menu ;;
+      4) uninstall_all && return 0 ;;
+      5) return 0 ;;
       *) warn "无效选项" ;;
     esac
   done
