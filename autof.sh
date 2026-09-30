@@ -6,6 +6,7 @@
 set -u
 
 APP="autof"
+VERSION="1.1.0"
 SELF_URL="${AUTOF_SELF_URL:-https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh}"
 
 if [ "$(id -u)" = "0" ] || [ -w /etc ]; then
@@ -205,7 +206,7 @@ draw_header() {
     *) v4mark=" ${C_GREEN}◀ 首选${C_RST}";;
   esac
   printf '%s\n' "${C_CYAN}${RULE_HEAVY}${C_RST}"
-  printf '  %sAutofrp%s  ·  frps 服务端\n' "$C_BOLD" "$C_RST"
+  printf '  %sAutofrp%s  ·  frps 服务端  %sv%s%s\n' "$C_BOLD" "$C_RST" "$C_DIM" "$VERSION" "$C_RST"
   printf '%s\n' "${C_CYAN}${RULE_HEAVY}${C_RST}"
   printf '  %sIPv4%s  %s  %s%s\n' "$C_CYAN" "$C_RST" "${V4_STATUS:-未探测}" "${PUBLIC_IP:-}" "$v4mark"
   printf '  %sIPv6%s  %s  %s%s\n' "$C_CYAN" "$C_RST" "${V6_STATUS:-未探测}" "${PUBLIC_IP6:-}" "$v6mark"
@@ -308,13 +309,12 @@ svc_manage() {
       printf '  （暂无服务）\n' >&2
     fi
     printf '\n'
-    printf '  输入序号=查看/编辑/删除    a=添加服务    p=打印 frpc.toml    回车=返回\n' >&2
+    printf '  输入序号=查看/编辑/删除    a=添加服务    回车=返回\n' >&2
     local c; c="$(ask '请选择')"
     printf '\n'
     case "$c" in
       "") return 0 ;;
       a|A) add_menu ;;
-      p|P) print_block "frpc.toml（复制到内网机器运行 frpc -c frpc.toml）" "$(gen_frpc)"; pause_key ;;
       *[!0-9]*) warn "无效选项"; pause_key ;;
       *)
         [ "$c" -ge 1 ] && [ "$c" -le "$(svc_count)" ] || { warn "序号超出范围"; pause_key; continue; }
@@ -437,6 +437,11 @@ print_block() {
   hr
 }
 
+print_frpc() {
+  [ -s "$SVC_FILE" ] || { warn "暂无服务，请先在「管理服务」中添加"; return 1; }
+  print_block "frpc.toml（复制到内网机器运行 frpc -c frpc.toml）" "$(gen_frpc)"
+}
+
 save_configs() {
   mkdir -p "$STATE_DIR" "$CLIENT_DIR" 2>/dev/null
   gen_frps > "$FRPS_CONF"
@@ -490,24 +495,22 @@ server_menu() {
     [ -t 1 ] && clear
     draw_header
     title "frps 管理"
-    menu_item 1 '启动'
-    menu_item 2 '停止'
-    menu_item 3 '重启'
-    menu_item 4 '状态'
-    menu_item 5 '日志'
-    menu_item 6 '修改控制端口'
-    menu_item 7 '网络偏好（IPv4 / IPv6 / 均可）'
+    menu_item 1 '停止'
+    menu_item 2 '重启'
+    menu_item 3 '状态'
+    menu_item 4 '日志'
+    menu_item 5 '修改控制端口'
+    menu_item 6 '网络偏好（IPv4 / IPv6 / 均可）'
     menu_item 0 '返回'
     local c; c="$(ask '请选择' '0')"
     printf '\n'
     case "$c" in
-      1) service_ctl start ;;
-      2) service_ctl stop ;;
-      3) service_ctl restart ;;
-      4) service_ctl status ;;
-      5) service_ctl logs ;;
-      6) setup_control ;;
-      7) setup_net_pref ;;
+      1) service_ctl stop ;;
+      2) service_ctl restart ;;
+      3) service_ctl status ;;
+      4) service_ctl logs ;;
+      5) setup_control ;;
+      6) setup_net_pref ;;
       0) return 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -634,17 +637,23 @@ download_self() {
   bash -n "$1" || return 1
 }
 
+remote_version() {
+  [ -n "$SELF_URL" ] || return 1
+  curl -fsSL --connect-timeout 4 --max-time 10 "$SELF_URL" 2>/dev/null \
+    | sed -n 's/^VERSION="\(.*\)"$/\1/p' | head -1
+}
+
 self_install() {
   require_root
   local target="/usr/local/bin/$APP" src="" tmp=""
-  if [ -f "$0" ]; then src="$0"
-  elif [ -n "$SELF_URL" ]; then
+  if [ -n "$SELF_URL" ]; then
     tmp="$(mktemp)"
-    download_self "$tmp" || { rm -f "$tmp"; die "下载失败"; }
-    src="$tmp"
-  else die "无法获取脚本来源"; fi
+    if download_self "$tmp"; then src="$tmp"; else warn "从远端下载失败"; fi
+  fi
+  if [ -z "$src" ] && [ -f "$0" ]; then src="$0"; fi
+  if [ -z "$src" ]; then [ -n "$tmp" ] && rm -f "$tmp"; die "无法获取脚本来源"; fi
   [ "$(readlink -f "$src")" = "$target" ] && { [ -n "$tmp" ] && rm -f "$tmp"; ok "已安装在 $target"; return 0; }
-  install -m 0755 "$src" "$target" || die "安装失败"
+  install -m 0755 "$src" "$target" || { [ -n "$tmp" ] && rm -f "$tmp"; die "安装失败"; }
   [ -n "$tmp" ] && rm -f "$tmp"
   ok "已安装为命令: $target"
 }
@@ -656,6 +665,18 @@ self_update() {
   install -m 0755 "$tmp" "/usr/local/bin/$APP" || { rm -f "$tmp"; die "写入失败"; }
   rm -f "$tmp"
   ok "已更新到最新版本"
+}
+
+check_update() {
+  [ "$(id -u)" = "0" ] || return 0
+  [ -n "$SELF_URL" ] || return 0
+  [ -f "$0" ] && [ "$(readlink -f "$0")" = "/usr/local/bin/$APP" ] || return 0
+  local rv; rv="$(remote_version)" || return 0
+  [ -n "$rv" ] && [ "$rv" != "$VERSION" ] || return 0
+  local newest; newest="$(printf '%s\n%s\n' "$VERSION" "$rv" | sort -V | tail -1)"
+  [ "$newest" = "$rv" ] || return 0
+  info "发现新版本 $rv（当前 v$VERSION）"
+  confirm_yes "是否现在更新？" && self_update
 }
 
 maybe_install_prompt() {
@@ -709,6 +730,7 @@ main_screen() {
     first_setup
   fi
   maybe_install_prompt
+  check_update
   ensure_frps
   local first=1
   while true; do
@@ -718,16 +740,18 @@ main_screen() {
     printf '\n'
     menu_item 1 '启动服务'
     menu_item 2 '管理服务'
-    menu_item 3 'frps 管理'
-    menu_item 4 '卸载'
-    menu_item 5 '退出'
+    menu_item 3 '打印客户端配置（frpc）'
+    menu_item 4 'frps 管理'
+    menu_item 5 '卸载'
+    menu_item 6 '退出'
     local c; c="$(ask '请选择')"
     case "$c" in
       1) install_frps ;;
       2) svc_manage ;;
-      3) server_menu ;;
-      4) uninstall_all && return 0 ;;
-      5) return 0 ;;
+      3) print_frpc; pause_key ;;
+      4) server_menu ;;
+      5) uninstall_all && return 0 ;;
+      6) return 0 ;;
       *) warn "无效选项" ;;
     esac
   done
@@ -735,7 +759,7 @@ main_screen() {
 
 usage() {
   cat <<EOF
-$APP - NAT 小鸡 frps 一键工具
+$APP - NAT 小鸡 frps 一键工具 (v$VERSION)
 
 用法:
   $APP                 主界面
