@@ -680,9 +680,23 @@ ensure_frps() {
 
 first_setup() {
   title "首次配置"
-  printf '  已自动检测网络并选择偏好：%s\n' "$(net_pref_label)" >&2
+  printf '  已自动检测到网络：\n' >&2
   printf '    IPv4  %s  %s\n' "${V4_STATUS:-无}" "${PUBLIC_IP:-}" >&2
   printf '    IPv6  %s  %s\n' "${V6_STATUS:-无}" "${PUBLIC_IP6:-}" >&2
+  printf '\n' >&2
+  local def
+  case "$IP_PREF" in 4) def=1;; 6) def=2;; both) def=3;; *) def=1;; esac
+  printf '  请选择网络偏好（回车=推荐 %s）\n' "$(net_pref_label)" >&2
+  menu_item 1 '仅 IPv4'
+  menu_item 2 '仅 IPv6'
+  menu_item 3 '均可（优先 IPv4，注释 IPv6）'
+  local c; c="$(ask '请选择' "$def")"
+  case "$c" in
+    1) if [ -n "$PUBLIC_IP" ]; then IP_PREF=4; else warn "未检测到 IPv4，保持 $(net_pref_label)"; fi;;
+    2) if [ -n "$PUBLIC_IP6" ]; then IP_PREF=6; else warn "未检测到 IPv6，保持 $(net_pref_label)"; fi;;
+    3) IP_PREF=both;;
+  esac
+  save_state
   printf '\n' >&2
   setup_control
 }

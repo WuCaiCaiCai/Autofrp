@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -
 sudo bash autof.sh
 ```
 
-首次运行会自动探测 IPv4/IPv6 并选择网络偏好、引导设置**控制端口**；若未检测到 `frps`，会询问是否自动下载并启动。结束时可安装为 `autof` 命令，之后直接：
+首次运行会自动探测 IPv4/IPv6，询问网络偏好并引导设置**控制端口**；若未检测到 `frps`，会询问是否自动下载并启动。结束时可安装为 `autof` 命令，之后直接：
 
 ```bash
 sudo autof
@@ -50,7 +50,7 @@ sudo autof
   5) 退出
 ```
 
-首次启动会自动探测 IPv4/IPv6 并选择网络偏好，然后引导设置控制端口。
+首次启动会自动探测 IPv4/IPv6、询问网络偏好，然后引导设置控制端口。
 
 ## 菜单说明
 
@@ -100,7 +100,7 @@ sudo autof
 sudo autof
 ```
 
-- 首次引导：确认自动检测的网络偏好，控制端口填 `30085`。
+- 首次引导：选择网络偏好（回车用推荐），控制端口填 `30085`。
 - `2) 管理服务` → `a` 添加 → `1) Minecraft Java`：本机端口 `25565`，对外端口 `30008`。
 - `2) 管理服务` → `p`：复制打印出的 `frpc.toml`。
 - `1) 启动服务`。
