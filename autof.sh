@@ -37,7 +37,7 @@ title() { printf '\n%s▌%s %s%s\n' "$C_CYAN" "$C_BOLD" "$*" "$C_RST" >&2; }
 hr()    { printf '%s%s%s\n' "$C_DIM" "$RULE_LIGHT" "$C_RST" >&2; }
 die()   { err "$*"; exit 1; }
 
-menu_item() { printf '  %s%s)%s %s\n' "$C_CYAN$C_BOLD" "$1" "$C_RST" "$2"; }
+menu_item() { printf '  %s%s）%s %s\n' "$C_CYAN$C_BOLD" "$1" "$C_RST" "$2"; }
 
 require_root() { [ "$(id -u)" = "0" ] || die "该操作需要 root 权限，请用 sudo 运行"; }
 
@@ -196,7 +196,7 @@ draw_header() {
   local st v4mark="" v6mark="" pid="" sname stype slport spublic sremark
   if pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1; then
     st="${C_GREEN}● 运行中${C_RST}"
-    pid=" ${C_DIM}(PID $(pgrep -f '/usr/local/bin/frps' | head -1))${C_RST}"
+    pid=" ${C_DIM}（PID $(pgrep -f '/usr/local/bin/frps' | head -1)）${C_RST}"
   else
     st="${C_RED}● 已停止${C_RST}"
   fi
@@ -290,7 +290,7 @@ svc_detail() {
   [ -n "$S_REMARK" ] && printf '  %-10s %s\n' "备注" "$S_REMARK"
   printf '\n'
   print_block "该服务 frpc 片段" "$(gen_frpc "$n")"
-  printf '  1) 编辑   2) 删除   0) 返回\n'
+  printf '  1）编辑   2）删除   0）返回\n'
   local c; c="$(ask '请选择' '0')"
   case "$c" in
     1) svc_edit "$n" ;;
@@ -564,7 +564,7 @@ install_frps() {
   local dir; dir="$(download_frp "$ver" "$arch")" || die "frp 下载失败"
   install -m 0755 "$dir/frps" /usr/local/bin/frps || die "安装 frps 失败"
   rm -rf "$(dirname "$dir")"
-  ok "frps 已安装 (v$ver)"
+  ok "frps 已安装（v$ver）"
   save_configs
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     cat > /etc/systemd/system/frps.service <<EOF
@@ -591,6 +591,20 @@ EOF
   else
     warn "未检测到 systemd，使用 nohup 启动"
     pkill -f '/usr/local/bin/frps' 2>/dev/null || true
+    nohup /usr/local/bin/frps -c "$FRPS_CONF" >"$STATE_DIR/frps.log" 2>&1 &
+    sleep 1
+    pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1 && ok "frps 已后台启动" || err "frps 启动失败"
+  fi
+}
+
+start_service() {
+  local pid; pid="$(pgrep -f '/usr/local/bin/frps' | head -1)"
+  if [ -n "$pid" ]; then ok "frps 已在运行（PID $pid）"; return 0; fi
+  require_root
+  if [ ! -x /usr/local/bin/frps ]; then install_frps; return $?; fi
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl start frps && ok "已启动" || err "启动失败，查看: journalctl -u frps -e"
+  else
     nohup /usr/local/bin/frps -c "$FRPS_CONF" >"$STATE_DIR/frps.log" 2>&1 &
     sleep 1
     pgrep -f '/usr/local/bin/frps' >/dev/null 2>&1 && ok "frps 已后台启动" || err "frps 启动失败"
@@ -692,11 +706,9 @@ ensure_frps() {
     warn "frps 未运行：安装/启动需要 root，请用 sudo 运行"
     return 0
   fi
-  if [ -x /usr/local/bin/frps ]; then
-    confirm_yes "frps 未运行，是否现在启动？" && service_ctl start
-  else
-    confirm_yes "未检测到 frps，是否现在自动下载并启动？" && install_frps
-  fi
+  local msg="未检测到 frps，是否现在自动下载并启动？"
+  [ -x /usr/local/bin/frps ] && msg="frps 未运行，是否现在启动？"
+  confirm_yes "$msg" && start_service
 }
 
 first_setup() {
@@ -746,7 +758,7 @@ main_screen() {
     menu_item 6 '退出'
     local c; c="$(ask '请选择')"
     case "$c" in
-      1) install_frps ;;
+      1) start_service ;;
       2) svc_manage ;;
       3) print_frpc; pause_key ;;
       4) server_menu ;;
@@ -759,7 +771,7 @@ main_screen() {
 
 usage() {
   cat <<EOF
-$APP - NAT 小鸡 frps 一键工具 (v$VERSION)
+$APP - NAT 小鸡 frps 一键工具（v$VERSION）
 
 用法:
   $APP                 主界面
