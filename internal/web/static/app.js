@@ -9,6 +9,8 @@ const state = {
   view: "overview",
   logTarget: "frps",
   logTimer: null,
+  logRaw: "",
+  logUpdated: null,
   imported: null,
   wizardStep: 1,
 };
@@ -19,7 +21,8 @@ const VIEW_META = {
   frpc: { title: "穿透客户端", sub: "连接远程 VPS 与本地隧道" },
   caddy: { title: "Caddy 反代", sub: "规则管理、证书策略与全局设置" },
   scanner: { title: "原服务迁移", sub: "探测 Nginx Proxy Manager / Nginx / 原版 Caddy 与 frp" },
-  system: { title: "日志与设置", sub: "服务日志、面板安全与运行信息" },
+  logs: { title: "服务日志", sub: "frps / frpc / Caddy / 面板运行日志" },
+  settings: { title: "设置", sub: "面板安全、HTTPS 访问与运行信息" },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -216,7 +219,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.0.2"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.0.3"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -731,7 +734,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.0.2")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.0.3")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
@@ -794,8 +797,12 @@ function switchView(view, pushHash = true) {
   $("pageTitle").textContent = meta.title;
   $("pageSub").textContent = meta.sub;
   if (pushHash && location.hash !== `#/${view}`) history.replaceState(null, "", `#/${view}`);
-  if (view === "system") loadLogs();
-  else stopLogAuto();
+  if (view === "logs") {
+    loadLogs();
+    if ($("logAutoRefresh").checked) startLogAuto();
+  } else {
+    stopLogAuto();
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1184,22 +1191,57 @@ function setLogTarget(target) {
   $$(".segmented [data-log]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.log === target)));
 }
 
-async function loadLogs(btn) {
-  if (state.view !== "system") return;
+const LOG_PATTERN = /(error|failed|failure|refused|timeout|denied|panic|fatal|错误|失败|拒绝)/i;
+const LOG_WARN_PATTERN = /(warn|warning|deprecated|警告|即将)/i;
+
+function renderLogs(lines) {
+  const view = $("logView");
+  const follow = $("logFollow").checked;
+  const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 24;
+  const keepTop = follow && atBottom;
+
+  const filter = ($("logFilter").value || "").trim().toLowerCase();
+  const html = [];
+  for (const raw of lines) {
+    if (filter && !raw.toLowerCase().includes(filter)) continue;
+    const line = esc(raw);
+    let cls = "log-line";
+    if (LOG_PATTERN.test(raw)) cls += " log-err";
+    else if (LOG_WARN_PATTERN.test(raw)) cls += " log-warn";
+    html.push(`<div class="${cls}">${line || "&nbsp;"}</div>`);
+  }
+  view.innerHTML = html.join("") || '<div class="log-empty">没有匹配的日志</div>';
+
+  if (keepTop) view.scrollTop = view.scrollHeight;
+}
+
+async function loadLogs() {
+  if (state.view !== "logs") return;
   const target = state.logTarget;
   try {
     const data = await api(`/api/service/logs?target=${encodeURIComponent(target)}&lines=${$("logLines").value}`);
-    const view = $("logView");
-    view.textContent = data.logs || "暂无日志";
-    view.scrollTop = view.scrollHeight;
+    const raw = data.logs || "";
+    // 内容未变化时不做任何 DOM 操作，避免闪烁与滚动跳动
+    if (raw === state.logRaw) {
+      $("logStatus").textContent = `${state.logRaw ? state.logRaw.split("\n").length : 0} 行 · 无变化`;
+      return;
+    }
+    state.logRaw = raw;
+    state.logUpdated = new Date();
+    renderLogs(raw.split("\n"));
+    $("logStatus").textContent = `${$("logView").childElementCount} 行 · ${state.logUpdated.toLocaleTimeString()}`;
   } catch (err) {
-    if (!(err instanceof AuthError)) $("logView").textContent = `读取失败：${err.message}`;
+    if (!(err instanceof AuthError)) {
+      $("logView").innerHTML = `<div class="log-line log-err">读取失败：${esc(err.message)}</div>`;
+    }
   }
 }
 
 function startLogAuto() {
   stopLogAuto();
-  state.logTimer = setInterval(() => loadLogs(), 5000);
+  state.logTimer = setInterval(() => {
+    if (document.visibilityState === "visible") loadLogs();
+  }, 5000);
 }
 
 function stopLogAuto() {
@@ -1609,7 +1651,21 @@ function bindEvents() {
     $("wizToken").value = randomToken(24);
   });
 
-  $("logLines").addEventListener("change", () => loadLogs());
+  $("logLines").addEventListener("change", () => {
+    state.logRaw = "";
+    loadLogs();
+  });
+  let filterTimer = null;
+  $("logFilter").addEventListener("input", () => {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => renderLogs(state.logRaw.split("\n")), 150);
+  });
+  $("logFollow").addEventListener("change", () => {
+    if ($("logFollow").checked) {
+      const view = $("logView");
+      view.scrollTop = view.scrollHeight;
+    }
+  });
   $$(".segmented [data-log]").forEach((b) =>
     b.addEventListener("click", () => {
       setLogTarget(b.dataset.log);
@@ -1657,7 +1713,7 @@ function bindEvents() {
     if (t.dataset.svc) {
       if (t.dataset.action === "logs") {
         setLogTarget(t.dataset.svc);
-        switchView("system");
+        switchView("logs");
         loadLogs();
         return;
       }
