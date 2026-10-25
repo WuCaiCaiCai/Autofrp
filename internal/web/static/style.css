@@ -702,7 +702,12 @@ html[data-theme="light"] .modal-backdrop { background: rgba(15, 23, 42, 0.38); }
   line-height: 1.65;
   color: var(--text-soft);
 }
-.log-line { white-space: pre-wrap; word-break: break-word; }
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 20px;
+}
 .log-line:hover { background: var(--surface-3); }
 .log-err { color: #f87171; }
 .log-warn { color: #fbbf24; }

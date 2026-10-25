@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -73,6 +74,9 @@ func FindBinary(name string) string {
 	return ""
 }
 
+// 语义化版本：必须三段（如 2.10.1），避免误匹配日志里的时间戳/浮点数
+var versionPattern = regexp.MustCompile(`(?:^|[\s"'])v?(\d+\.\d+\.\d+)`)
+
 // GetVersion 获取二进制组件的版本号
 func GetVersion(name string) string {
 	bin := FindBinary(name)
@@ -89,15 +93,16 @@ func GetVersion(name string) string {
 		cmd = exec.Command(bin, "--version")
 	}
 	out, err := cmd.CombinedOutput()
-	if err != nil {
+	if err != nil && len(out) == 0 {
 		return ""
 	}
-	line := strings.TrimSpace(strings.Split(string(out), "\n")[0])
-	fields := strings.Fields(line)
-	if len(fields) > 0 {
-		return strings.TrimPrefix(fields[0], "v")
+	// caddy version 可能先输出一行 JSON 警告（stderr），真正的版本在后面的行里
+	for _, line := range strings.Split(string(out), "\n") {
+		if m := versionPattern.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
 	}
-	return line
+	return ""
 }
 
 // QueryStatus 查询指定服务的安装与运行状态
