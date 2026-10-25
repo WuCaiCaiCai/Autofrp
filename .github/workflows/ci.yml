@@ -6,16 +6,30 @@ on:
       - main
       - master
       - "feat/**"
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# 同一分支/PR 只保留最新一次运行，连续 push 时取消旧任务
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,14 +40,22 @@ jobs:
           go-version: "1.22.x"
           cache: true
 
-      - name: Check bash syntax (autof.sh)
-        run: bash -n autof.sh
+      - name: Check formatting & scripts
+        run: |
+          unformatted="$(gofmt -l ./cmd ./internal)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::以下文件未通过 gofmt："
+            echo "$unformatted"
+            exit 1
+          fi
+          bash -n autof.sh
+          node --check internal/web/static/app.js
 
       - name: Run go vet
         run: go vet ./...
 
       - name: Run unit tests
-        run: go test -race ./...
+        run: go test -race -count=1 ./...
 
       - name: Cross-compile amd64 & arm64
         run: |
@@ -43,16 +65,35 @@ jobs:
           done
           ls -lh dist/
 
+      - name: WebUI boot smoke test
+        run: |
+          set -euo pipefail
+          export AUTOF_STATE_DIR="$(mktemp -d)"
+          ./dist/autof_linux_amd64 web --listen 127.0.0.1:17500 > /tmp/web.log 2>&1 &
+          WEB_PID=$!
+          trap 'kill $WEB_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:17500/ > /tmp/index.html 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+          grep -q 'id="wizardModal"' /tmp/index.html
+          grep -q 'id="logView"' /tmp/index.html
+          curl -fsS http://127.0.0.1:17500/static/app.js | grep -q 'renderLogs'
+          curl -fsS http://127.0.0.1:17500/static/style.css | grep -q 'data-theme'
+          echo "WebUI 静态资源与关键节点检查通过"
+
       - name: Upload amd64 binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: autof-linux-amd64
           path: dist/autof_linux_amd64
+          retention-days: 7
 
   distro-smoke-test:
     name: Distro Compatibility (${{ matrix.distro }})
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
