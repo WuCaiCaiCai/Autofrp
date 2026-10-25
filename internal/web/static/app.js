@@ -23,6 +23,24 @@ const VIEW_META = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+/* ------------------------------------------------------------ theme */
+function applyTheme(theme, persist = true) {
+  document.documentElement.dataset.theme = theme;
+  const btn = $("btnTheme");
+  if (btn) {
+    btn.innerHTML = `<svg class="i" width="17" height="17" aria-hidden="true"><use href="#i-${
+      theme === "light" ? "sun" : "moon"
+    }"/></svg>`;
+    btn.setAttribute("aria-label", theme === "light" ? "切换到夜间模式" : "切换到日间模式");
+    btn.title = theme === "light" ? "切换到夜间模式" : "切换到日间模式";
+  }
+  if (persist) localStorage.setItem("autof.theme", theme);
+}
+
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+}
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function icon(name, size = 16) {
@@ -198,7 +216,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.0.1"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.0.2"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -303,6 +321,12 @@ function renderRole() {
   $$(".segmented [data-role]").forEach((b) => {
     b.setAttribute("aria-pressed", String(b.dataset.role === state.role));
   });
+  const modeTag = $("modeTag");
+  if (modeTag) modeTag.classList.toggle("hidden", state.role !== "both");
+  const cardFrps = $("statFrps");
+  const cardFrpc = $("statFrpc");
+  if (cardFrps) cardFrps.classList.toggle("hidden", state.role === "local");
+  if (cardFrpc) cardFrpc.classList.toggle("hidden", state.role === "vps");
   $$(".nav-item[data-roles]").forEach((item) => {
     const roles = item.dataset.roles.split(" ");
     item.classList.toggle("hidden", !roles.includes(state.role));
@@ -697,6 +721,9 @@ function renderSystem() {
   $("webListenAddr").value = pick(cfg, "web.listenAddr", "0.0.0.0:7500");
   $("webUsername").value = pick(cfg, "web.username", "admin");
   $("webAuthEnabled").checked = pick(cfg, "web.authEnabled", true) !== false;
+  $("webTLSListen").value = pick(cfg, "web.tlsListen", "");
+  $("webTLSCert").value = pick(cfg, "web.tlsCertFile", "");
+  $("webTLSKey").value = pick(cfg, "web.tlsKeyFile", "");
 
   const sys = d.systemInfo || {};
   const svcs = d.services || {};
@@ -704,7 +731,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.0.1")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.0.2")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
@@ -871,16 +898,25 @@ async function saveWeb(btn) {
   const pwd = $("webPassword").value;
   const payload = {
     listenAddr: $("webListenAddr").value.trim(),
+    tlsListen: $("webTLSListen").value.trim(),
+    tlsCertFile: $("webTLSCert").value.trim(),
+    tlsKeyFile: $("webTLSKey").value.trim(),
     username: $("webUsername").value.trim(),
     password: pwd,
     authEnabled: $("webAuthEnabled").checked,
   };
+  const tlsWas = pick(state.data.config, "web.tlsListen", "");
+  const tlsNow = payload.tlsListen;
   await withBusy(btn, async () => {
     try {
       state.data = await api("/api/system/web", { method: "POST", body: JSON.stringify(payload) });
       render();
       $("webPassword").value = "";
-      toast("面板设置已保存", "ok");
+      if (tlsWas !== tlsNow) {
+        toast("面板设置已保存，HTTPS 监听变更需重启面板服务后生效", "ok");
+      } else {
+        toast("面板设置已保存", "ok");
+      }
     } catch (err) {
       if (!(err instanceof AuthError)) toast(err.message, "err");
     }
@@ -1428,6 +1464,7 @@ function bindEvents() {
     })
   );
 
+  $("btnTheme").addEventListener("click", toggleTheme);
   $("btnRefreshAll").addEventListener("click", (e) => loadOverview(e.currentTarget));
   $$("[data-quick]").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -1533,6 +1570,18 @@ function bindEvents() {
   $("btnSaveWeb").addEventListener("click", (e) => saveWeb(e.currentTarget));
   $("btnRandomPwd").addEventListener("click", () => {
     $("webPassword").value = randomToken(14);
+  });
+  $("btnGenTLS").addEventListener("click", async (e) => {
+    await withBusy(e.currentTarget, async () => {
+      try {
+        state.data = await api("/api/system/tls/generate", { method: "POST" });
+        render();
+        const info = state.data.tlsGenerated || {};
+        toast(`自签证书已生成，HTTPS 监听 ${info.listen || ""}，重启面板后生效`, "ok");
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.message, "err");
+      }
+    });
   });
   $("btnReloadWeb").addEventListener("click", async (e) => {
     const ok = await confirmDialog({
@@ -1668,6 +1717,7 @@ function randomToken(len) {
 
 /* ------------------------------------------------------------ boot */
 window.addEventListener("DOMContentLoaded", async () => {
+  applyTheme(document.documentElement.dataset.theme || "dark", false);
   bindEvents();
   setLogTarget("frps");
   switchView(viewFromHash(), false);

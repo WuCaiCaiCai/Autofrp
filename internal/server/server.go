@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
 
@@ -36,12 +37,29 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
-// Start 启动 HTTP 监听
+// Start 启动 HTTP 监听；若配置了 HTTPS 监听地址与证书，则同时启动 HTTPS
 func (s *Server) Start(listenAddr string) error {
-	if listenAddr == "" {
-		listenAddr = s.store.Get().Web.ListenAddr
+	cfg := s.store.Get()
+	addr := listenAddr
+	if addr == "" {
+		addr = cfg.Web.ListenAddr
 	}
-	return http.ListenAndServe(listenAddr, s.mux)
+
+	if cfg.Web.TLSListen != "" && cfg.Web.TLSCertFile != "" && cfg.Web.TLSKeyFile != "" {
+		tlsAddr := cfg.Web.TLSListen
+		certFile, keyFile := cfg.Web.TLSCertFile, cfg.Web.TLSKeyFile
+		go func() {
+			log.Printf("Autofrp WebUI HTTPS 监听 %s", tlsAddr)
+			if err := http.ListenAndServeTLS(tlsAddr, certFile, keyFile, s.mux); err != nil {
+				log.Printf("Autofrp WebUI HTTPS 监听失败: %v", err)
+			}
+		}()
+	}
+
+	if addr == "" {
+		select {}
+	}
+	return http.ListenAndServe(addr, s.mux)
 }
 
 func (s *Server) registerRoutes() {
@@ -93,6 +111,7 @@ func (s *Server) registerRoutes() {
 
 	// 系统与 WebUI 设置
 	s.mux.HandleFunc("/api/system/web", s.withAuth(s.handleSystemWeb))
+	s.mux.HandleFunc("/api/system/tls/generate", s.withAuth(s.handleGenerateSelfSignedTLS))
 }
 
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {

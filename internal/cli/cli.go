@@ -191,6 +191,13 @@ func runWebDaemon(store *config.Store, listenOverride string) error {
 	}
 	fmt.Printf("%s[*]%s Autofrp WebUI 已启动:\n", cCyan, cReset)
 	fmt.Printf("    访问地址: %shttp://%s:%s%s\n", cBold, displayHost, port, cReset)
+	if cfg.Web.TLSListen != "" {
+		tlsPort := "7443"
+		if idx := strings.LastIndex(cfg.Web.TLSListen, ":"); idx != -1 {
+			tlsPort = cfg.Web.TLSListen[idx+1:]
+		}
+		fmt.Printf("    HTTPS   : %shttps://%s:%s%s\n", cBold, displayHost, tlsPort, cReset)
+	}
 	fmt.Printf("    用 户 名: %s%s%s\n", cBold, cfg.Web.Username, cReset)
 	fmt.Printf("    密    码: %s%s%s\n", cBold, cfg.Web.Password, cReset)
 	srv := server.New(store)
@@ -238,6 +245,13 @@ func installWebService(store *config.Store) error {
 	}
 	fmt.Printf("%s[+]%s Autofrp WebUI 后台服务已启动！\n", cGreen, cReset)
 	fmt.Printf("    浏览器访问: %shttp://%s:%s%s\n", cCyan+cBold, host, port, cReset)
+	if cfg.Web.TLSListen != "" {
+		tlsPort := "7443"
+		if idx := strings.LastIndex(cfg.Web.TLSListen, ":"); idx != -1 {
+			tlsPort = cfg.Web.TLSListen[idx+1:]
+		}
+		fmt.Printf("    HTTPS 访问: %shttps://%s:%s%s\n", cCyan+cBold, host, tlsPort, cReset)
+	}
 	fmt.Printf("    登录用户名: %s%s%s\n", cBold, cfg.Web.Username, cReset)
 	fmt.Printf("    登录密  码: %s%s%s\n", cBold, cfg.Web.Password, cReset)
 	return nil
