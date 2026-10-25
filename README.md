@@ -109,8 +109,14 @@ VPS 端导出 `autof://` 连接码或 `frpc.toml`，本地端粘贴即完成对�
 **🔐 Caddy 全场景反代**
 自动公网 HTTPS、非标端口、局域网自签（`tls internal`）、Cloudflare / 阿里云 / DNSPod / DuckDNS 的 DNS-01 泛域名证书。
 
-**🧬 吞并老服务**
-自动识别 NPM / Nginx / 原版 Caddy / frp，提取站点与 SSL 证书迁移到 `/etc/autof/`，确认后停用清理老服务。
+**🧬 吞并老服务（Compose 安全）**
+自动识别 NPM / Nginx / 原版 Caddy / frp，提取站点与 SSL 证书迁移到 `/etc/autof/`；compose 管理的容器只 stop，不删容器、不改 compose。
+
+**📜 证书管理**
+内置 acme.sh（DNS-01），可申请泛域名 `*.example.com`、查看到期天数、手动/自动续期，并导出 PEM 给 NPM 等使用。
+
+**💾 备份与迁移**
+一键打包配置、证书、令牌与生成文件；换机后导入恢复，自动归档旧配置，不改 systemd / Docker。
 
 **🧩 多发行版适配**
 Debian / Deepin / Fedora / Arch / Alpine 等；自动处理 SELinux 上下文、OpenRC 与无 systemd 环境。
@@ -165,6 +171,50 @@ Debian / Deepin / Fedora / Arch / Alpine 等；自动处理 SELinux 上下文、
 
 ---
 
+## 证书管理（泛域名 / 自动续期）
+
+证书页使用 **acme.sh + DNS-01** 申请，首次使用会自动下载 acme.sh 到 `/etc/autof/acme/`。
+
+1. 先到「设置 → Caddy 全局设置」选择 DNS 服务商并填写 API 凭据（Cloudflare / 阿里云 / DNSPod / DuckDNS）。
+2. 「证书管理 → 申请证书」填写域名，例如 `example.com, *.example.com`，选择密钥类型与输出目录。
+3. 证书文件会写入输出目录（默认 `/etc/autof/certs/<域名>/`）：`fullchain.pem` + `privkey.pem`。
+4. 面板每 12 小时检查一次续期；也可以点「续期」立即更新。续期后若 Caddy 规则引用了该目录会自动 reload。
+
+> **给 Docker 里的 NPM**：NPM 的证书存在自己的数据库里，不能靠替换文件生效。本工具提供「导出 PEM」，复制到 NPM 的 *SSL Certificates → Add → Custom Certificate* 即可；续期后需要重新粘贴一次。不会修改 NPM 数据库、容器或 compose。
+
+| 服务商 | 凭据填写 |
+| --- | --- |
+| Cloudflare | Token 填 API Token（Zone.DNS Edit 权限），Secret 可留空或填 Account ID |
+| 阿里云 | Token 填 AccessKeyId，Secret 填 AccessKeySecret |
+| DNSPod | Token 填 DP_Id，Secret 填 DP_Key |
+| DuckDNS | Token 填 DuckDNS Token |
+
+## 备份与迁移
+
+「设置 → 备份与迁移」可导出 `.tar.gz`，包含：
+
+- `config.json`（可选是否包含 Token / 密码）
+- `frps.toml` / `frpc.toml` / `Caddyfile`
+- `certs/` 与 `tls/`（私钥跟随敏感信息选项）
+- 可选旧版 `state.conf` / `services.conf` 与历史备份目录
+
+恢复时只会写入 `/etc/autof`，并在写入前把当前配置归档到 `backup/pre-restore-<时间>`；不会修改 systemd 单元、Docker 容器或 compose 文件。可勾选「保留当前面板账号密码」避免恢复后无法登录。
+
+```bash
+sudo autof backup ./my-backup.tar.gz          # 含密钥
+sudo autof backup ./share.tar.gz --no-secrets # 脱敏，便于分享
+sudo autof restore ./my-backup.tar.gz --keep-creds
+sudo autof cert list                          # 查看证书与剩余天数
+```
+
+## Compose 容器说明
+
+吞并 Docker 中的 NPM / Caddy / frp 时：
+
+- 如果容器由 `docker compose` 管理（含 `com.docker.compose.project` 标签），面板**只执行 `docker stop`**；
+- **不会** `docker rm`、不会修改 restart 策略、不会编辑 compose 文件，同文件里的其他服务不受影响；
+- 面板会显示 compose 项目、服务名与文件路径；如需永久移除，请自行编辑 compose 后执行 `docker compose up -d`。
+
 ## 面板 HTTPS 与 Cloudflare
 
 WebUI 默认是 `http://IP:7500`，三种方式可以加上 HTTPS：
@@ -204,6 +254,9 @@ sudo autof install frps|frpc|caddy|web|all
 sudo autof start|stop|restart|reload|logs [frps|frpc|caddy|autof]
 sudo autof net 4|6|both             # 网络偏好（IPv4 / IPv6 / 双栈）
 sudo autof pwd [新密码]             # 查看或重置 WebUI 密码
+sudo autof backup [文件]            # 导出配置/证书备份（--no-secrets 脱敏）
+sudo autof restore <文件>           # 从备份恢复（--keep-creds 保留面板密码）
+sudo autof cert list                # 查看证书与剩余天数
 sudo autof uninstall                # 完全卸载
 ```
 
@@ -218,7 +271,8 @@ sudo autof uninstall                # 完全卸载
 | `/etc/autof/frpc.toml` | 本机 `frpc` 运行配置 |
 | `/etc/autof/Caddyfile` | 经语法校验的 Caddy 配置 |
 | `/etc/autof/certs/<域名>/` | 迁移来的 `fullchain.pem` 与 `privkey.pem` |
-| `/etc/autof/backup/` | 吞并前的原配置备份 |
+| `/etc/autof/backup/` | 吞并前的原配置备份与恢复前归档 |
+| `/etc/autof/acme/` | acme.sh 与账户数据（泛域名证书） |
 | `/usr/local/bin/autof` | 主程序（含内嵌 WebUI） |
 
 > 非 root 运行时回退到 `~/.config/autof`，也可用 `AUTOF_STATE_DIR` 指定。

@@ -25,6 +25,7 @@ const VIEW_META = {
   frps: { title: "穿透服务端", sub: "frps 参数、端口白名单与穿透服务" },
   frpc: { title: "穿透客户端", sub: "连接远程 VPS 与本地隧道" },
   caddy: { title: "Caddy 反代", sub: "规则管理、证书策略与全局设置" },
+  certs: { title: "证书管理", sub: "泛域名证书申请、续期与导出" },
   scanner: { title: "原服务迁移", sub: "探测 Nginx Proxy Manager / Nginx / 原版 Caddy 与 frp" },
   logs: { title: "服务日志", sub: "frps / frpc / Caddy / 面板运行日志" },
   settings: { title: "设置", sub: "面板安全、HTTPS 访问与运行信息" },
@@ -224,7 +225,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.0.4"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.1.0"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -237,6 +238,7 @@ function render() {
   renderFrps();
   renderFrpc();
   renderCaddy();
+  renderCerts();
   renderScanner();
   renderSystem();
   renderPresets();
@@ -245,6 +247,7 @@ function render() {
     navFrpsCount: (pick(cfg, "frps.services", []) || []).length,
     navFrpcCount: (pick(cfg, "frpc.tunnels", []) || []).length,
     navCaddyCount: (pick(cfg, "caddy.rules", []) || []).filter((r) => r.enabled).length,
+    navCertCount: (pick(cfg, "caddy.certificates", []) || []).length,
   };
   Object.entries(counts).forEach(([id, n]) => {
     const el = $(id);
@@ -657,6 +660,263 @@ function renderCaddy() {
     .join("");
 }
 
+function expiryBadge(days) {
+  if (days === undefined || days === null) return `<span class="badge badge-neutral">未知</span>`;
+  if (days < 0) return `<span class="badge badge-off">已过期</span>`;
+  if (days < 14) return `<span class="badge badge-off">${days} 天</span>`;
+  if (days < 30) return `<span class="badge badge-warn">${days} 天</span>`;
+  return `<span class="badge badge-ok">${days} 天</span>`;
+}
+
+function renderCerts() {
+  const d = state.data;
+  const cfg = d.config || {};
+  const entries = pick(cfg, "caddy.certificates", []) || [];
+  const discovered = d.certificates || [];
+  const byManaged = new Map();
+  discovered.forEach((c) => {
+    if (c.managedId) byManaged.set(c.managedId, c);
+  });
+
+  const body = $("certsBody");
+  const rows = [];
+
+  entries.forEach((e) => {
+    const info = byManaged.get(e.id) || {};
+    const domains = (e.domains || info.domains || []).join(", ");
+    const days = info.daysLeft;
+    const source = `<span class="badge badge-info">acme.sh</span>`;
+    const auto = e.autoRenew ? `<span class="tag">自动续期</span>` : `<span class="tag">手动续期</span>`;
+    const err = e.lastError
+      ? `<div class="cell-sub" style="color:var(--danger)">${esc(e.lastError)}</div>`
+      : "";
+    const path = e.targetDir || info.certPath || "-";
+    rows.push(`<tr>
+      <td data-label="名称"><div class="cell-main">${esc(e.name)}</div><div class="cell-sub mono">${esc(domains)}</div>${err}</td>
+      <td data-label="签发者">${esc(info.issuer || "-")}</td>
+      <td data-label="到期">${expiryBadge(days)}</td>
+      <td data-label="来源">${source} ${auto}</td>
+      <td data-label="路径"><span class="mono">${esc(path)}</span></td>
+      <td data-label="操作"><div class="cell-actions">
+        <button class="btn btn-sm" data-cert-renew="${esc(e.id)}">${icon("rotate", 13)}续期</button>
+        <button class="btn btn-sm" data-cert-pem="${esc(e.id)}">${icon("key", 13)}导出</button>
+        <button class="btn btn-sm btn-danger" data-cert-del="${esc(e.id)}">${icon("trash", 13)}移除</button>
+      </div></td>
+    </tr>`);
+  });
+
+  discovered
+    .filter((c) => !c.managedId)
+    .forEach((c, idx) => {
+      const sourceLabel =
+        c.source === "caddy" ? `<span class="badge badge-purple">Caddy 存储</span>` : `<span class="badge badge-neutral">面板自签</span>`;
+      rows.push(`<tr>
+        <td data-label="名称"><div class="cell-main">${esc((c.domains || []).join(", ") || "证书")}</div><div class="cell-sub">${esc(c.certPath)}</div></td>
+        <td data-label="签发者">${esc(c.issuer || "-")}</td>
+        <td data-label="到期">${expiryBadge(c.daysLeft)}</td>
+        <td data-label="来源">${sourceLabel}</td>
+        <td data-label="路径"><span class="mono">${esc(c.certPath)}</span></td>
+        <td data-label="操作"><div class="cell-actions">
+          <button class="btn btn-sm" data-cert-pem-unmanaged="${idx}">${icon("key", 13)}导出</button>
+        </div></td>
+      </tr>`);
+    });
+
+  state.unmanagedCerts = discovered.filter((c) => !c.managedId);
+  body.innerHTML =
+    rows.join("") ||
+    emptyRow(6, "暂无证书。点「申请证书」用 DNS-01 申请泛域名证书，或在 Caddy 规则中启用自动 HTTPS。");
+
+  const hint = $("certCredHint");
+  if (hint) {
+    const provider = pick(cfg, "caddy.dnsProvider", "");
+    const hasToken = !!pick(cfg, "caddy.dnsToken", "");
+    hint.innerHTML = provider
+      ? `将使用全局 DNS 凭据：<strong>${esc(provider)}</strong>${hasToken ? "（已配置）" : "（尚未填写 Token）"}`
+      : `尚未配置 DNS 服务商，请先到「设置 → Caddy 全局设置」填写服务商与 API 凭据。`;
+  }
+}
+
+function openCertModal() {
+  const cfg = state.data.config || {};
+  $("certName").value = "";
+  $("certDomains").value = "";
+  $("certKeyType").value = "ec-256";
+  $("certProvider").value = pick(cfg, "caddy.dnsProvider", "");
+  $("certTargetDir").value = "";
+  $("certAutoRenew").checked = true;
+  updateCertCredHint();
+  openModal("certModal");
+}
+
+function updateCertCredHint() {
+  const provider = $("certProvider").value || pick(state.data.config, "caddy.dnsProvider", "");
+  const hasToken = !!pick(state.data.config, "caddy.dnsToken", "");
+  $("certCredHint").innerHTML = provider
+    ? `DNS 服务商：<strong>${esc(provider)}</strong>，凭据取自「设置 → Caddy 全局设置」${hasToken ? "" : "，当前尚未填写 Token"}。`
+    : `未选择服务商。请先到「设置 → Caddy 全局设置」配置 DNS API 凭据，否则无法完成 DNS-01 验证。`;
+}
+
+async function submitCert(btn) {
+  const domains = $("certDomains").value.trim();
+  if (!domains) return toast("请填写域名", "err");
+  const payload = {
+    name: $("certName").value.trim(),
+    domains,
+    keyType: $("certKeyType").value,
+    provider: $("certProvider").value,
+    targetDir: $("certTargetDir").value.trim(),
+    autoRenew: $("certAutoRenew").checked,
+  };
+  await withBusy(btn, async () => {
+    try {
+      toast("正在通过 DNS-01 申请证书，请稍候…");
+      state.data = await api("/api/cert/issue", { method: "POST", body: JSON.stringify(payload) });
+      render();
+      closeModal("certModal");
+      toast("证书申请成功", "ok");
+      switchView("certs");
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, "err");
+    }
+  });
+}
+
+async function renewCert(id, btn) {
+  await withBusy(btn, async () => {
+    try {
+      toast("正在续期…");
+      state.data = await api("/api/cert/renew", { method: "POST", body: JSON.stringify({ id }) });
+      render();
+      toast("续期完成", "ok");
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, "err");
+    }
+  });
+}
+
+async function deleteCert(id, btn) {
+  const ok = await confirmDialog({
+    title: "移除证书配置",
+    text: "仅从面板移除托管记录，已签发的证书文件会保留在磁盘上。确定继续？",
+    okText: "移除",
+  });
+  if (!ok) return;
+  await withBusy(btn, async () => {
+    try {
+      state.data = await api(`/api/cert?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      render();
+      toast("已移除托管记录", "ok");
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, "err");
+    }
+  });
+}
+
+async function openPemModal(certPath, keyPath) {
+  $("pemCert").value = "读取中…";
+  $("pemKey").value = "读取中…";
+  openModal("pemModal");
+  try {
+    const [c, k] = await Promise.all([
+      api(`/api/scanner/file?path=${encodeURIComponent(certPath)}`),
+      keyPath ? api(`/api/scanner/file?path=${encodeURIComponent(keyPath)}`).catch(() => ({ content: "（无法读取私钥）" })) : Promise.resolve({ content: "（无私钥路径）" }),
+    ]);
+    $("pemCert").value = c.content || "";
+    $("pemKey").value = k.content || "";
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message, "err");
+  }
+}
+
+function findManagedCert(id) {
+  return (pick(state.data.config, "caddy.certificates", []) || []).find((e) => e.id === id);
+}
+
+function pemForManaged(entry) {
+  const info = (state.data.certificates || []).find((c) => c.managedId === entry.id);
+  const certPath = info ? info.certPath : `${entry.targetDir}/fullchain.pem`;
+  const keyPath = info ? info.keyPath : `${entry.targetDir}/privkey.pem`;
+  openPemModal(certPath, keyPath);
+}
+
+async function exportBackup(btn) {
+  const params = new URLSearchParams({
+    secrets: $("bkSecrets").checked ? "1" : "0",
+    legacy: $("bkLegacy").checked ? "1" : "0",
+  });
+  toast("正在打包备份…");
+  try {
+    const res = await fetch(`/api/backup/export?${params.toString()}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `导出失败（${res.status}）`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="?([^";]+)"?/);
+    a.href = url;
+    a.download = m ? m[1] : "autofrp-backup.tar.gz";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("备份已下载", "ok");
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message, "err");
+  }
+}
+
+async function inspectBackup(file) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  $("bkManifest").textContent = "正在读取备份信息…";
+  try {
+    const res = await fetch("/api/backup/inspect", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "读取失败");
+    state.uploadedBackup = file;
+    $("btnBackupImport").disabled = false;
+    $("bkManifest").innerHTML = `备份来源：<strong>${esc(data.hostname || "-")}</strong> · 版本 ${esc(
+      data.version || "-"
+    )} · ${new Date(data.createdAt).toLocaleString()} · ${data.files} 个文件${
+      data.hasSecrets ? " · 含密钥" : " · 不含密钥"
+    }`;
+  } catch (err) {
+    state.uploadedBackup = null;
+    $("btnBackupImport").disabled = true;
+    $("bkManifest").textContent = err.message;
+  }
+}
+
+async function importBackup(btn) {
+  if (!state.uploadedBackup) return toast("请先选择备份文件", "err");
+  const ok = await confirmDialog({
+    title: "恢复备份",
+    text: "将覆盖 /etc/autof 下的配置与证书，并按需重启 frps / 重载 Caddy。恢复前会自动归档当前配置，确定继续？",
+    okText: "恢复",
+  });
+  if (!ok) return;
+  await withBusy(btn, async () => {
+    const fd = new FormData();
+    fd.append("file", state.uploadedBackup);
+    fd.append("keepCreds", $("bkKeepCreds").checked ? "1" : "0");
+    try {
+      const res = await fetch("/api/backup/import", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || "恢复失败");
+      state.data = data;
+      render();
+      toast("备份恢复完成", "ok");
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, "err");
+    }
+  });
+}
+
 function renderScanner() {
   // 只看外部/原生服务；由 Autofrp 托管的组件已在总览与配置页展示
   const apps = (state.data.detectedApps || []).filter((a) => !a.managedByAutof);
@@ -671,7 +931,7 @@ function renderScanner() {
           ? `<span class="badge badge-ok"><span class="dot"></span>运行中</span>`
           : `<span class="badge badge-warn">未运行</span>`;
         const meta = a.container
-          ? `Docker · ${esc(a.container)}`
+          ? `Docker · ${esc(a.container)}${a.composeProject ? ` · compose:${esc(a.composeProject)}/${esc(a.composeService)}` : ""}`
           : a.pid
           ? `PID ${a.pid}`
           : esc(a.binaryOrImage || "-");
@@ -739,7 +999,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.0.4")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.1.0")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
@@ -1353,6 +1613,18 @@ function rerenderLogs() {
   renderLogsFull(state.logPrev);
 }
 
+function startLogAuto() {
+  stopLogAuto();
+  state.logTimer = setInterval(() => {
+    if (document.visibilityState === "visible") loadLogs();
+  }, 5000);
+}
+
+function stopLogAuto() {
+  if (state.logTimer) clearInterval(state.logTimer);
+  state.logTimer = null;
+}
+
 
 
 /* ------------------------------------------------------------ scanner actions */
@@ -1439,10 +1711,22 @@ async function openTakeover(appId) {
         ${steps.map((s) => `<li>${esc(s)}</li>`).join("")}
       </ol></div>`;
 
+    if (plan.composeProject) {
+      html =
+        `<div class="banner" style="margin-bottom:10px">` +
+        `<svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-alert"/></svg>` +
+        `<div style="flex:1;min-width:220px">该容器由 Docker Compose 管理（项目 <span class="mono">${esc(
+          plan.composeProject
+        )}</span> / 服务 <span class="mono">${esc(plan.composeService || "-")}</span>）。` +
+        `本工具只会执行 <span class="mono">docker stop</span>，<strong>不会删除容器、不会修改 compose 文件</strong>；` +
+        `如需彻底移除，请手动编辑 <span class="mono">${esc(plan.composeFile || "compose 文件")}</span> 后重新 up。</div></div>` +
+        html;
+    }
     $("takeoverSummary").innerHTML = html;
     $("tkCerts").checked = true;
     $("tkStopOld").checked = true;
     $("tkRemoveOld").checked = false;
+    $("tkRemoveOld").disabled = !!plan.composeProject;
     $("tkStart").checked = true;
     openModal("takeoverModal");
   } catch (err) {
@@ -1714,6 +1998,28 @@ function bindEvents() {
   $("btnParseImport").addEventListener("click", (e) => parseImport(e.currentTarget));
   $("btnApplyImport").addEventListener("click", (e) => applyImport(e.currentTarget));
 
+  $("btnAddCert").addEventListener("click", openCertModal);
+  $("certProvider").addEventListener("change", updateCertCredHint);
+  $("btnSubmitCert").addEventListener("click", (e) => submitCert(e.currentTarget));
+  $("btnRenewAllCerts").addEventListener("click", async (e) => {
+    await withBusy(e.currentTarget, async () => {
+      try {
+        toast("正在检查续期…");
+        state.data = await api("/api/cert/renew-all", { method: "POST" });
+        render();
+        toast("续期检查完成", "ok");
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.message, "err");
+      }
+    });
+  });
+  $("btnCopyPemCert").addEventListener("click", () => copyText($("pemCert").value, "证书已复制"));
+  $("btnCopyPemKey").addEventListener("click", () => copyText($("pemKey").value, "私钥已复制"));
+
+  $("btnBackupExport").addEventListener("click", (e) => exportBackup(e.currentTarget));
+  $("bkFile").addEventListener("change", (e) => inspectBackup(e.target.files[0]));
+  $("btnBackupImport").addEventListener("click", (e) => importBackup(e.currentTarget));
+
   $("btnRescan").addEventListener("click", (e) => loadOverview(e.currentTarget));
   $("btnSaveWeb").addEventListener("click", (e) => saveWeb(e.currentTarget));
   $("btnRandomPwd").addEventListener("click", () => {
@@ -1799,7 +2105,7 @@ function bindEvents() {
 
   // delegated row actions
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-svc],[data-edit-frps],[data-del-frps],[data-edit-frpc],[data-del-frpc],[data-edit-caddy],[data-del-caddy],[data-edit-app],[data-takeover],[data-close],[data-copy],[data-copy-input],[data-copy-code]");
+    const t = e.target.closest("[data-svc],[data-edit-frps],[data-del-frps],[data-edit-frpc],[data-del-frpc],[data-edit-caddy],[data-del-caddy],[data-cert-renew],[data-cert-del],[data-cert-pem],[data-cert-pem-unmanaged],[data-edit-app],[data-takeover],[data-close],[data-copy],[data-copy-input],[data-copy-code]");
     if (!t) return;
 
     if (t.dataset.close) {
@@ -1848,6 +2154,24 @@ function bindEvents() {
       const list = pick(state.data.config, "caddy.rules", []) || [];
       if (t.dataset.delCaddy) deleteCaddy(id, t);
       else openCaddyModal(list.find((x) => x.id === id));
+      return;
+    }
+    if (t.dataset.certRenew) {
+      renewCert(t.dataset.certRenew, t);
+      return;
+    }
+    if (t.dataset.certDel) {
+      deleteCert(t.dataset.certDel, t);
+      return;
+    }
+    if (t.dataset.certPem) {
+      const entry = findManagedCert(t.dataset.certPem);
+      if (entry) pemForManaged(entry);
+      return;
+    }
+    if (t.dataset.certPemUnmanaged !== undefined) {
+      const c = (state.unmanagedCerts || [])[Number(t.dataset.certPemUnmanaged)];
+      if (c) openPemModal(c.certPath, c.keyPath);
       return;
     }
     if (t.dataset.editApp) {

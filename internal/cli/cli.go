@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/WuCaiCaiCai/Autofrp/internal/backup"
 	"github.com/WuCaiCaiCai/Autofrp/internal/caddy"
+	"github.com/WuCaiCaiCai/Autofrp/internal/cert"
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 	"github.com/WuCaiCaiCai/Autofrp/internal/frp"
 	"github.com/WuCaiCaiCai/Autofrp/internal/netenv"
@@ -140,6 +143,15 @@ func Run(args []string) error {
 			target = args[1]
 		}
 		return handleServiceCtl(store, cmd, target)
+
+	case "backup":
+		return handleBackupCLI(store, args[1:])
+
+	case "restore":
+		return handleRestoreCLI(store, args[1:])
+
+	case "cert":
+		return handleCertCLI(store, args[1:])
 
 	case "uninstall":
 		return uninstallAll(store)
@@ -688,6 +700,99 @@ func pause() {
 	_, _ = stdinReader.ReadString('\n')
 }
 
+func handleBackupCLI(store *config.Store, args []string) error {
+	opts := backup.Options{IncludeSecrets: true}
+	out := ""
+	for _, a := range args {
+		switch a {
+		case "--no-secrets":
+			opts.IncludeSecrets = false
+		case "--with-legacy":
+			opts.IncludeLegacy = true
+		default:
+			if !strings.HasPrefix(a, "-") {
+				out = a
+			}
+		}
+	}
+	path, err := backup.Create(store, opts)
+	if err != nil {
+		return err
+	}
+	if out == "" {
+		out = "autofrp-backup-" + time.Now().Format("20060102-150405") + ".tar.gz"
+	}
+	if err := os.Rename(path, out); err != nil {
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return err
+		}
+		if werr := os.WriteFile(out, data, 0600); werr != nil {
+			return werr
+		}
+		_ = os.Remove(path)
+	}
+	fmt.Printf("%s[+]%s 备份已生成: %s（包含密钥: %v）\n", cGreen, cReset, out, opts.IncludeSecrets)
+	return nil
+}
+
+func handleRestoreCLI(store *config.Store, args []string) error {
+	keepCreds := false
+	path := ""
+	for _, a := range args {
+		if a == "--keep-creds" {
+			keepCreds = true
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
+			path = a
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("用法: autof restore <备份文件.tar.gz> [--keep-creds]")
+	}
+	if _, err := backup.Inspect(path); err != nil {
+		return err
+	}
+	if !confirm("恢复会覆盖 /etc/autof 下的配置与证书，继续？") {
+		return fmt.Errorf("已取消")
+	}
+	cfg, err := backup.Restore(store, path, keepCreds)
+	if err != nil {
+		return err
+	}
+	_ = frp.WriteConfigs(store)
+	_ = caddy.WriteAndApply(store, false)
+	fmt.Printf("%s[+]%s 恢复完成（版本 %s，%d 条穿透规则）\n", cGreen, cReset, cfg.Version, len(cfg.Frps.Services))
+	return nil
+}
+
+func handleCertCLI(store *config.Store, args []string) error {
+	cfg := store.Get()
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "list":
+		infos := cert.MatchManaged(cert.Discover(store), cfg.Caddy.Certificates)
+		if len(infos) == 0 {
+			fmt.Println("暂无证书。请在 WebUI「证书管理」中申请泛域名证书。")
+			return nil
+		}
+		for _, i := range infos {
+			owner := "外部"
+			if i.ManagedID != "" {
+				owner = "托管"
+			}
+			fmt.Printf("  [%s] %-40s %3d 天  %s\n", owner, strings.Join(i.Domains, ","), i.DaysLeft, i.CertPath)
+		}
+		return nil
+	default:
+		return fmt.Errorf("用法: autof cert list")
+	}
+}
+
 func printUsage(stateDir string) {
 	fmt.Printf(`Autofrp v%s - 远程 VPS 与本地服务器内网穿透 (frps/frpc) & Caddy 快速反代工具
 
@@ -706,6 +811,9 @@ func printUsage(stateDir string) {
   autof start|stop|restart|reload|logs [frps|frpc|caddy|autof]
   autof net 4|6|both             设置双栈网络偏好
   autof pwd [新密码]             查看或重置 WebUI 登录密码
+  autof backup [文件]            导出配置/证书备份（--no-secrets 脱敏）
+  autof restore <文件>           从备份恢复（--keep-creds 保留当前面板密码）
+  autof cert list                查看证书与剩余天数
   autof uninstall                完全卸载
 
 配置目录: %s

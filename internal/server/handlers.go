@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/WuCaiCaiCai/Autofrp/internal/caddy"
+	"github.com/WuCaiCaiCai/Autofrp/internal/cert"
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 	"github.com/WuCaiCaiCai/Autofrp/internal/frp"
 	"github.com/WuCaiCaiCai/Autofrp/internal/netenv"
@@ -21,12 +22,16 @@ func (s *Server) buildOverviewResponse() map[string]any {
 	cfg := s.store.Get()
 	connCode, _ := cfg.ExportConnectionCode()
 
+	certs := cert.MatchManaged(cert.Discover(s.store), cfg.Caddy.Certificates)
+
 	return map[string]any{
-		"config":       cfg,
-		"stateDir":     s.store.StateDir(),
-		"systemInfo":   netenv.DetectSystemInfo(),
-		"detectedApps": scanner.ScanServer(s.store.StateDir()),
-		"legacy":       s.store.LegacyStatus(),
+		"config":        cfg,
+		"stateDir":      s.store.StateDir(),
+		"certificates":  certs,
+		"acmeInstalled": cert.Installed(s.store),
+		"systemInfo":    netenv.DetectSystemInfo(),
+		"detectedApps":  scanner.ScanServer(s.store.StateDir()),
+		"legacy":        s.store.LegacyStatus(),
 		"services": map[string]any{
 			"frps":  systemd.QueryStatus("frps"),
 			"frpc":  systemd.QueryStatus("frpc"),

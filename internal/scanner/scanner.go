@@ -33,6 +33,12 @@ type DetectedApp struct {
 	ManagedByAutof bool     `json:"managedByAutof"` // 是否已由 Autofrp 托管
 	CanImport      bool     `json:"canImport"`      // 是否支持一键导入到 Autofrp 规则表
 	Note           string   `json:"note"`           // 附加说明（如端口冲突提示）
+
+	// Docker Compose 元信息（compsoe 管理的容器禁止自动删除）
+	ComposeProject string `json:"composeProject,omitempty"`
+	ComposeService string `json:"composeService,omitempty"`
+	ComposeFile    string `json:"composeFile,omitempty"`
+	ComposeWorkdir string `json:"composeWorkdir,omitempty"`
 }
 
 type procInfo struct {
@@ -352,6 +358,8 @@ func detectDockerContainers(existing []DetectedApp) []DetectedApp {
 			continue
 		}
 
+		compose := inspectCompose(cid)
+
 		// 查找容器挂载到宿主机的配置文件
 		mountedConfigs := inspectDockerMountedConfigs(cid)
 		primary := ""
@@ -364,21 +372,49 @@ func detectDockerContainers(existing []DetectedApp) []DetectedApp {
 		}
 
 		results = append(results, DetectedApp{
-			ID:            "docker-" + cname,
-			Name:          appName,
-			Category:      category,
-			Running:       true,
-			Container:     cname,
-			BinaryOrImage: image,
-			Cmdline:       "docker container: " + cname + " (" + cid + ")",
-			ListenPorts:   ports,
-			ConfigFiles:   mountedConfigs,
-			PrimaryConfig: primary,
-			CanImport:     category == "caddy" || category == "frp" || category == "npm" || category == "nginx",
-			Note:          note,
+			ID:             "docker-" + cname,
+			Name:           appName,
+			Category:       category,
+			Running:        true,
+			Container:      cname,
+			BinaryOrImage:  image,
+			Cmdline:        "docker container: " + cname + " (" + cid + ")",
+			ListenPorts:    ports,
+			ConfigFiles:    mountedConfigs,
+			PrimaryConfig:  primary,
+			CanImport:      category == "caddy" || category == "frp" || category == "npm" || category == "nginx",
+			Note:           note,
+			ComposeProject: compose.Project,
+			ComposeService: compose.Service,
+			ComposeFile:    compose.File,
+			ComposeWorkdir: compose.Workdir,
 		})
 	}
 	return results
+}
+
+type composeInfo struct {
+	Project string
+	Service string
+	File    string
+	Workdir string
+}
+
+func inspectCompose(containerID string) composeInfo {
+	var info composeInfo
+	out, err := exec.Command("docker", "inspect", "--format", "{{json .Config.Labels}}", containerID).Output()
+	if err != nil {
+		return info
+	}
+	labels := map[string]string{}
+	if err := json.Unmarshal(out, &labels); err != nil {
+		return info
+	}
+	info.Project = labels["com.docker.compose.project"]
+	info.Service = labels["com.docker.compose.service"]
+	info.File = labels["com.docker.compose.project.config_files"]
+	info.Workdir = labels["com.docker.compose.project.working_dir"]
+	return info
 }
 
 func inspectDockerMountedConfigs(containerID string) []string {

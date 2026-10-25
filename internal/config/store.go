@@ -333,6 +333,12 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Caddy.Rules == nil {
 		cfg.Caddy.Rules = []CaddyRule{}
 	}
+	if cfg.Caddy.Certificates == nil {
+		cfg.Caddy.Certificates = []CertEntry{}
+	}
+	for i := range cfg.Caddy.Certificates {
+		normalizeCertEntry(&cfg.Caddy.Certificates[i], i+1)
+	}
 
 	for i := range cfg.Frps.Services {
 		normalizeTunnel(&cfg.Frps.Services[i], i+1)
@@ -368,6 +374,30 @@ func normalizeTunnel(t *TunnelRule, idx int) {
 	t.CaddyDomain = strings.TrimSpace(t.CaddyDomain)
 	if t.CaddyTLSMode == "" {
 		t.CaddyTLSMode = "auto"
+	}
+}
+
+func normalizeCertEntry(c *CertEntry, idx int) {
+	if c.ID == "" {
+		c.ID = GenID("cert")
+	}
+	if c.Name == "" {
+		if len(c.Domains) > 0 {
+			c.Name = c.Domains[0]
+		} else {
+			c.Name = fmt.Sprintf("cert-%d", idx)
+		}
+	}
+	if c.KeyType == "" {
+		c.KeyType = "ec-256"
+	}
+	if c.AutoRenew == false && c.CreatedAt == "" {
+		c.AutoRenew = true
+	}
+	if c.TargetDir == "" && len(c.Domains) > 0 {
+		name := strings.TrimPrefix(strings.TrimPrefix(c.Domains[0], "*."), ".")
+		name = strings.ReplaceAll(name, ":", "_")
+		c.TargetDir = filepath.Join("/etc/autof/certs", name)
 	}
 }
 

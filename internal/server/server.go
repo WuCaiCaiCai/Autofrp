@@ -39,6 +39,8 @@ func (s *Server) Handler() http.Handler {
 
 // Start 启动 HTTP 监听；若配置了 HTTPS 监听地址与证书，则同时启动 HTTPS
 func (s *Server) Start(listenAddr string) error {
+	go s.renewLoop()
+
 	cfg := s.store.Get()
 	addr := listenAddr
 	if addr == "" {
@@ -108,6 +110,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/scanner/import", s.withAuth(s.handleScannerImport))
 	s.mux.HandleFunc("/api/scanner/takeover-preview", s.withAuth(s.handleTakeoverPreview))
 	s.mux.HandleFunc("/api/scanner/takeover", s.withAuth(s.handleTakeoverExecute))
+
+	// 证书管理（acme.sh，支持泛域名）
+	s.mux.HandleFunc("/api/cert/issue", s.withAuth(s.handleCertIssue))
+	s.mux.HandleFunc("/api/cert/renew", s.withAuth(s.handleCertRenew))
+	s.mux.HandleFunc("/api/cert/renew-all", s.withAuth(s.handleCertRenewAll))
+	s.mux.HandleFunc("/api/cert", s.withAuth(s.handleCertDelete))
+
+	// 备份与迁移
+	s.mux.HandleFunc("/api/backup/export", s.withAuth(s.handleBackupExport))
+	s.mux.HandleFunc("/api/backup/inspect", s.withAuth(s.handleBackupInspect))
+	s.mux.HandleFunc("/api/backup/import", s.withAuth(s.handleBackupImport))
 
 	// 系统与 WebUI 设置
 	s.mux.HandleFunc("/api/system/web", s.withAuth(s.handleSystemWeb))
