@@ -195,6 +195,13 @@ func (s *Server) handleCertDelete(w http.ResponseWriter, r *http.Request) {
 	if purge {
 		// 被 Caddy 规则引用时不允许直接删除文件
 		if !force {
+			dir := filepath.Clean(entry.TargetDir) + string(os.PathSeparator)
+			if cfg.Web.TLSCertFile != "" && strings.HasPrefix(filepath.Clean(cfg.Web.TLSCertFile), dir) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{
+					"error": "面板 HTTPS 正在使用该证书，请先在「设置 → HTTPS 访问」更换证书来源或使用 --force",
+				})
+				return
+			}
 			for _, rule := range cfg.Caddy.Rules {
 				if rule.CertFile != "" && strings.HasPrefix(filepath.Clean(rule.CertFile), filepath.Clean(entry.TargetDir)+string(os.PathSeparator)) {
 					writeJSON(w, http.StatusBadRequest, map[string]string{

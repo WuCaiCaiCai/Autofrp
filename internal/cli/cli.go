@@ -835,6 +835,10 @@ func handleCertCLI(store *config.Store, args []string) error {
 		}
 		entry := cfg.Caddy.Certificates[idx]
 		if !keepFiles && !force {
+			dir := filepath.Clean(entry.TargetDir) + string(os.PathSeparator)
+			if cfg.Web.TLSCertFile != "" && strings.HasPrefix(filepath.Clean(cfg.Web.TLSCertFile), dir) {
+				return fmt.Errorf("面板 HTTPS 正在使用该证书，请先在设置中更换证书来源或加 --force")
+			}
 			for _, rule := range cfg.Caddy.Rules {
 				if rule.CertFile != "" && strings.HasPrefix(filepath.Clean(rule.CertFile), filepath.Clean(entry.TargetDir)+string(os.PathSeparator)) {
 					return fmt.Errorf("该证书仍被 Caddy 规则 [%s] 引用，请先修改规则或加 --force", rule.Listen)
