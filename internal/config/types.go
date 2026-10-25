@@ -87,7 +87,9 @@ type CaddyRule struct {
 	Name            string `json:"name"`            // 规则名称/备注
 	Listen          string `json:"listen"`          // 前端监听：域名(example.com)、域名:端口(example.com:8443)、纯端口(:8080)、局域网IP:端口
 	Upstream        string `json:"upstream"`        // 后端目标：127.0.0.1:8080、192.168.1.50:5000、https://127.0.0.1:8443
-	TLSMode         string `json:"tlsMode"`         // "auto" (自动公网证书), "dns" (DNS API 证书), "internal" (局域网自签证书), "http" (纯 HTTP)
+	TLSMode         string `json:"tlsMode"`         // "auto" (自动公网证书), "dns" (DNS API 证书), "internal" (局域网自签证书), "custom" (已迁移的原证书), "http" (纯 HTTP)
+	CertFile        string `json:"certFile"`        // 迁移或自定义的公钥证书路径 (/etc/autof/certs/.../fullchain.pem)
+	KeyFile         string `json:"keyFile"`         // 迁移或自定义的私钥路径 (/etc/autof/certs/.../privkey.pem)
 	SkipTLSVerify   bool   `json:"skipTlsVerify"`   // 后端为 HTTPS 时跳过自签证书校验
 	EnableEncode    bool   `json:"enableEncode"`    // 开启 zstd/gzip 压缩
 	ExtraDirectives string `json:"extraDirectives"` // 额外自定义 Caddyfile 指令

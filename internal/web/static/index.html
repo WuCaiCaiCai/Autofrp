@@ -13,7 +13,10 @@
       <div class="brand">
         <div class="brand-logo">A</div>
         <div>
-          <div class="brand-title">Autofrp <span id="appVersion" class="badge badge-info">v2.0.0</span></div>
+          <div class="brand-title">
+            Autofrp <span id="appVersion" class="badge badge-info">v2.0.0</span>
+            <span id="distroBadge" class="badge badge-purple" style="margin-left:4px;">Linux</span>
+          </div>
           <div class="brand-sub">远程 VPS &amp; 本地服务器 · 内网穿透 (frp) 与 Caddy 快速反代管理</div>
         </div>
       </div>
@@ -122,12 +125,22 @@
       </div>
     </section>
 
+    <!-- 探测到原版服务提示条 -->
+    <div id="detectedBanner" class="card hidden" style="margin-bottom:16px;border-color:var(--warning);background:rgba(245,158,11,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div>
+        <strong style="color:#fbbf24;">🔎 检测到服务器存在原有反代或穿透服务：</strong>
+        <span id="detectedBannerText" style="font-size:13.5px;margin-left:6px;"></span>
+      </div>
+      <button class="btn btn-sm btn-primary" onclick="switchTab('scanner')">查看详情 / 在线编辑 / 一键吞并迁移 →</button>
+    </div>
+
     <!-- 主功能导航标签页 -->
     <nav class="tabs">
       <button class="tab-btn active" id="tabBtnFrps" onclick="switchTab('frps')">1. 穿透服务端 (远程 VPS · frps)</button>
       <button class="tab-btn" id="tabBtnFrpc" onclick="switchTab('frpc')">2. 穿透客户端 (本地服务器 · frpc)</button>
       <button class="tab-btn" id="tabBtnCaddy" onclick="switchTab('caddy')">3. Caddy 快速反代 (VPS &amp; 本地通用)</button>
-      <button class="tab-btn" id="tabBtnSystem" onclick="switchTab('system')">4. 日志与系统设置</button>
+      <button class="tab-btn" id="tabBtnScanner" onclick="switchTab('scanner')">4. 原服务探测与吞并 (NPM / 原版 Caddy / frp)</button>
+      <button class="tab-btn" id="tabBtnSystem" onclick="switchTab('system')">5. 日志与系统设置</button>
     </nav>
 
     <!-- ==================== Tab 1: 穿透服务端 (frps) ==================== -->
@@ -346,7 +359,38 @@
       </div>
     </section>
 
-    <!-- ==================== Tab 4: 日志与系统设置 ==================== -->
+    <!-- ==================== Tab 4: 原服务探测与吞并迁移 ==================== -->
+    <section id="tabPanelScanner" class="tab-panel hidden">
+      <div class="card">
+        <div class="section-bar">
+          <div>
+            <h3 style="font-size:15px;">原服务器进程探测、在线编辑与一键吞并迁移</h3>
+            <p class="sub-hint">
+              自动识别宿主机或 Docker 中运行的 <strong>Nginx Proxy Manager (NPM)</strong>、<strong>Nginx</strong>、<strong>原版 Caddy</strong>、<strong>原版 frps/frpc</strong>，支持直接在线修改原配置，或一键提取反代规则与 SSL 证书迁移到 <span class="mono">/etc/autof/</span> 并清理老服务
+            </p>
+          </div>
+          <button class="btn" onclick="loadOverview()">🔄 重新扫描服务器进程</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>服务名称 / 类型</th>
+                <th>运行状态 &amp; 进程/容器</th>
+                <th>监听端口</th>
+                <th>识别到的主配置文件</th>
+                <th>说明</th>
+                <th>操作（编辑 / 吞并迁移）</th>
+              </tr>
+            </thead>
+            <tbody id="detectedAppsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== Tab 5: 日志与系统设置 ==================== -->
     <section id="tabPanelSystem" class="tab-panel hidden">
       <div class="card" style="margin-bottom:16px;">
         <div class="section-bar">
@@ -502,9 +546,10 @@
         </div>
         <div class="form-group">
           <label>证书与协议模式</label>
-          <select id="caddyRuleTLSMode">
+          <select id="caddyRuleTLSMode" onchange="toggleCustomCertInputs()">
             <option value="auto">🔒 自动公网 HTTPS (默认 80/443 或域名:端口)</option>
             <option value="dns">☁️ DNS API 证书 (支持泛域名 / 无 80 端口)</option>
+            <option value="custom">📁 使用已迁移/自定义证书文件 (Cert + Key)</option>
             <option value="internal">🏠 局域网自签 HTTPS (tls internal，支持内网 IP)</option>
             <option value="http">🌐 纯 HTTP 端口反代 (无证书，适合局域网明文)</option>
           </select>
@@ -518,6 +563,17 @@
           <label>后端目标地址 (Upstream)</label>
           <input type="text" id="caddyRuleUpstream" class="mono" placeholder="如 127.0.0.1:8080 或 192.168.1.50:5000" />
           <span class="sub-hint">自动支持 WebSocket 转发</span>
+        </div>
+      </div>
+
+      <div id="caddyCustomCertBox" class="form-grid hidden" style="margin-bottom:8px;">
+        <div class="form-group">
+          <label>公钥证书路径 (fullchain.pem / .crt)</label>
+          <input type="text" id="caddyRuleCertFile" class="mono" placeholder="/etc/autof/certs/example.com/fullchain.pem" />
+        </div>
+        <div class="form-group">
+          <label>私钥路径 (privkey.pem / .key)</label>
+          <input type="text" id="caddyRuleKeyFile" class="mono" placeholder="/etc/autof/certs/example.com/privkey.pem" />
         </div>
       </div>
 
@@ -610,6 +666,69 @@
       <div class="modal-footer">
         <button class="btn btn-primary" onclick="copyTextById('previewCodeBox', true)">复制内容</button>
         <button class="btn" onclick="closeModal('previewModal')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 弹窗 6: 原配置文件在线编辑器 ==================== -->
+  <div id="extEditorModal" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:780px;">
+      <div class="modal-header">
+        <span class="modal-title" id="extEditorTitle">在线编辑原服务配置文件</span>
+        <button class="btn btn-sm" onclick="closeModal('extEditorModal')">✕</button>
+      </div>
+      <input type="hidden" id="extEditorAppID" value="" />
+      <div class="form-group">
+        <label>选择要查看 / 编辑的配置文件（保存前会自动创建 .autof.bak 备份）</label>
+        <select id="extEditorFileSelect" class="mono" onchange="loadExternalFileContent(this.value)"></select>
+      </div>
+      <div class="form-group">
+        <textarea id="extEditorTextarea" rows="16" class="mono" style="font-size:12.5px;line-height:1.45;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('extEditorModal')">取消</button>
+        <button class="btn" onclick="saveExternalFileContent(false)">仅保存文件</button>
+        <button class="btn btn-primary" onclick="saveExternalFileContent(true)">保存并重载/重启该服务</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 弹窗 7: 一键吞并迁移与清理老服务确认窗口 ==================== -->
+  <div id="takeoverModal" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:740px;">
+      <div class="modal-header">
+        <span class="modal-title" id="takeoverModalTitle">🚀 吞并迁移与清理老服务确认</span>
+        <button class="btn btn-sm" onclick="closeModal('takeoverModal')">✕</button>
+      </div>
+      <input type="hidden" id="takeoverAppID" value="" />
+
+      <div id="takeoverSummaryBox" style="font-size:13.5px;"></div>
+
+      <div class="linked-box" style="margin-top:12px;">
+        <div style="font-weight:600;font-size:13.5px;margin-bottom:6px;color:var(--primary);">
+          请选择吞并迁移与老服务清理选项：
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="tkUseImportedCerts" checked />
+          直接沿用迁移过来的原 SSL 证书文件（存于 <span class="mono">/etc/autof/certs/</span>，零等待无缝生效 HTTPS）
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="tkStopOldService" checked />
+          停止并禁用原服务 / 原 Docker 容器（自动释放占用的 80 / 443 / 7000 等端口）
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="tkRemoveOldService" />
+          彻底清理老服务（删除原 Docker 容器或将原配置文件归档为 <span class="mono">.migrated_by_autof</span>）
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="tkStartAutof" checked />
+          迁移完成后立即启动 Autofrp 的 Caddy / frp 接管全部服务
+        </label>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('takeoverModal')">取消</button>
+        <button class="btn btn-primary" onclick="confirmAndExecuteTakeover()">✅ 确认吞并并接管服务</button>
       </div>
     </div>
   </div>

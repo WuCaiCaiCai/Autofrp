@@ -251,7 +251,7 @@ func WriteAndApply(store *config.Store, reloadIfRunning bool) error {
 	}
 
 	caddyfilePath := store.CaddyfilePath()
-	if err := os.WriteFile(caddyfilePath, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(caddyfilePath, []byte(content), 0644); err != nil {
 		return err
 	}
 
