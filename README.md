@@ -1,197 +1,133 @@
-# Autofrp
+# Autofrp v2.0
 
-在 **NAT 型 VPS** 上一键部署 frp 服务端（`frps`），把内网服务（Minecraft 等）暴露到公网。
-全中文交互引导，脚本只跑在 **服务端（VPS）** 上，内网机器不用装。
+**远程 VPS** 与 **本地服务器** 一体化的 **内网穿透 (`frps` / `frpc`) + Caddy 快速反代** 管理工具。  
+采用 **Go 单二进制 + 内嵌响应式 WebUI** 架构，零第三方运行时依赖，兼顾直观的网页控制台与命令行交互。
 
+```text
+                       ┌────────────────── 远程 VPS ──────────────────┐     ┌─────────── 本地服务器 / NAS ───────────┐
+外部用户 (HTTPS/域名) ──► Caddy (自动证书/反代) ──► 127.0.0.1:穿透端口  │     │                                        │
+                       │                                    ▲         │     │                                        │
+游戏玩家 (TCP/UDP)    ──► 公网IP:对外端口       ──►        frps ◄─────┼─────┼── frpc ◄── 本机/局域网服务 (192.168.x.x)│
+                       └──────────────────────────────────────────────┘     │    ▲                                   │
+                                                                            │  Caddy (局域网反代 / 内网自签 / DNS证书)│
+                                                                            └────────────────────────────────────────┘
 ```
-玩家 ──► 公网IP:对外端口 ──► VPS（frps） ◄── frpc ── 内网机器（Minecraft）
-```
 
-## 特性
+---
 
-- 一条命令起 `frps`：自动下载并注册 systemd 开机自启。
-- 内置 **Minecraft Java**（TCP `25565`）与 **Bedrock**（UDP `19132`）预设，也可自定义 TCP/UDP。
-- 自动生成 `frps.toml` 与 `frpc.toml`：服务端配置写盘，客户端配置一键打印，复制即用。
-- 自动探测公网 IPv4/IPv6，支持「仅 IPv4 / 仅 IPv6 / 均可」双栈。
-- 状态栏显示版本号，启动时自动检查新版本并提示更新。
-- 一条命令完全卸载。
+## 核心特性
+
+- **单一可执行文件 + 内置 WebUI**：Go 原生 `embed.FS` 打包前端，编译后仅一个 `autof` 二进制文件，开箱即用。
+- **双端统一管理（两端独立运行 + 一键导入导出）**：
+  - **远程 VPS 端**：一键安装并守护 `frps` + `Caddy`，管理穿透服务与域名反代，一键导出 **`autof://` 连接码** 或标准 **`frpc.toml`**。
+  - **本地服务器端**：一键安装并守护 `frpc` + `Caddy`，直接粘贴 **`autof://` 连接码** 或 `frpc.toml` 即可完成对接；增删改本地/局域网穿透隧道自动执行 **`frpc reload` 零中断热重载**。
+- **Caddy 快速反代深度整合**：
+  - **穿透服务一键联动反代**：添加穿透规则时可直接填写域名，自动生成并同步对应的 Caddy 反代规则与 HTTPS 证书配置。
+  - **通用快速反代**：支持 `域名`、`域名:非标端口`（适合无 80/443 的 NAT VPS）、`:纯端口` 转发到本机或局域网任意 `IP:Port`，原生支持 WebSocket 与跳过后端 HTTPS 自签证书校验（`tls_insecure_skip_verify`）。
+  - **局域网 / 无域名反代**：支持纯 HTTP 端口反代与 `tls internal` 局域网自签名 HTTPS。
+  - **DNS API 证书申请（可选）**：支持 Cloudflare、阿里云 AliDNS、腾讯云 DNSPod、DuckDNS，支持泛域名（`*.example.com`）及无 80/443 端口或纯内网环境签发真实受信任 SSL 证书。
+- **灵活的端口白名单策略**：支持「不限制（默认推荐，本地新增穿透无需改 VPS）」、「指定端口段（适合 NAT VPS）」与「严格白名单」三种模式。
+- **无损兼容旧版**：自动检测并迁移 v1 版本的 `/etc/autof/state.conf` 与 `services.conf`。
+
+---
 
 ## 快速开始
+
+### 方式一：一键脚本安装 / 编译运行
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -o autof.sh
 sudo bash autof.sh
 ```
 
-首次运行会自动探测 IPv4/IPv6，询问网络偏好并引导设置**控制端口**；若未检测到 `frps`，会询问是否自动下载并启动。结束时可安装为 `autof` 命令，之后直接：
+或在仓库源码目录下直接构建：
 
 ```bash
-sudo autof
+go build -trimpath -ldflags="-s -w" -o autof ./cmd/autof
+sudo install -m 0755 autof /usr/local/bin/autof
 ```
 
-## 主界面
-
-```
-════════════════════════════════════════════════════════════
-  Autofrp  ·  frps 服务端  v1.1.1
-════════════════════════════════════════════════════════════
-  IPv4  NAT IPv4  108.165.122.146 ◀ 首选
-  IPv6  NAT IPv6  2602:f9f3:3000::185 （备选）
-  状态  ● 运行中
-  控制端口 30085    网络偏好 均可
-  ── 穿透服务 ──
-  mc-java        tcp  25565 → 25565
-  mc-bedrock     udp  19132 → 19132
-════════════════════════════════════════════════════════════
-
-  1）启动服务
-  2）管理服务
-  3）打印客户端配置（frpc）
-  4）frps 管理
-  5）卸载
-  6）退出
-```
-
-首次启动会自动探测 IPv4/IPv6、询问网络偏好，然后引导设置控制端口。
-
-## 菜单说明
-
-- **启动服务**：frps 已在运行则提示，未运行则直接启动；只有未安装时才下载 frps（GitHub + 镜像回退）并注册 systemd。
-- **管理服务**：一屏管理所有穿透服务——输入序号查看 / 编辑 / 删除；`a` 添加（`Minecraft Java` TCP `25565` / `Minecraft Bedrock` UDP `19132` / 自定义 TCP / 自定义 UDP，端口可改，对外端口默认同本机）。
-- **打印客户端配置（frpc）**：打印完整 `frpc.toml`（内网机器用的客户端配置），复制到内网机器运行 `frpc -c frpc.toml`。
-- **frps 管理**：停止、重启、状态、日志、修改控制端口、网络偏好。
-- **卸载**：完全卸载（服务 + 程序 + 配置 + `autof` 命令）。
-
-## 端口规则
-
-| 项 | 说明 |
-| --- | --- |
-| 控制端口 | `frpc` 连接 `frps` 用，全局一个，和具体服务无关 |
-| 本机端口 | 内网服务实际监听的端口（如 MC Java 的 `25565`） |
-| 对外端口 | 玩家 / 外部连接用的公网端口，默认等于本机端口 |
-
-- `frps` 在 VPS 上监听**对外端口**，玩家连接地址固定为 `公网IP:对外端口`。
-- NAT VPS：在**服务商网页端**把控制端口和每个对外端口都映射为 `端口 -> 同端口`。
-- 有独立公网 IP 的 VPS 无需网页端映射。
-
-## 网络偏好（IPv4 / IPv6 / 均可）
-
-在「frps 管理 → 网络偏好」或命令行设置，会同时影响 `frps` 监听与 `frpc` 连接地址：
-
-| 偏好 | `frps` 的 `bindAddr` | `frpc` 的 `serverAddr` |
-| --- | --- | --- |
-| 仅 IPv4 | `0.0.0.0` | IPv4 公网地址 |
-| 仅 IPv6 | `::` | IPv6 公网地址 |
-| 均可 | `::`（双栈） | 优先 IPv4，并注释一行 IPv6 备选 |
-
-> 「均可」的双栈监听依赖内核 `net.ipv6.bindv6only=0`（Linux 默认）。
-
-## 完整示例：Minecraft
-
-场景：VPS 是 NAT 型、跑 `frps`；内网机器跑 Minecraft（Java `25565` / Bedrock `19132`），想让玩家连。
-
-### 1. 服务商网页端设置映射（都是 `X -> X`）
-
-| 外部端口 | 内部端口 | 用途 |
-| --- | --- | --- |
-| `30085` | `30085` | 控制端口 |
-| `30008` | `30008` | Minecraft Java |
-
-### 2. VPS 上运行脚本
+### 方式二：启动 WebUI 网页控制台（推荐）
 
 ```bash
-sudo autof
+# 注册并启动 autof WebUI 后台服务（默认监听 0.0.0.0:7500）
+sudo autof web-install
 ```
 
-- 首次引导：选择网络偏好（回车用推荐），控制端口填 `30085`。
-- `2）管理服务` → `a` 添加 → `1）Minecraft Java`：本机端口 `25565`，对外端口 `30008`。
-- `3）打印客户端配置（frpc）`：复制打印出的 `frpc.toml`（内网机器用）。
-- `1）启动服务`。
+终端会直接输出访问地址、默认用户名（`admin`）与自动生成的随机密码：
 
-> Bedrock 同理：`2）管理服务` → `a` → `2）Minecraft Bedrock`（UDP `19132`），再在网页端加一条对应映射。
+```text
+[+] Autofrp WebUI 后台服务已启动！
+    浏览器访问: http://你的IP:7500
+    登录用户名: admin
+    登录密  码: xxxxxxxxxxxx
+```
 
-### 3. 内网机器上运行 frpc
+---
 
-1. 从 [frp Releases](https://github.com/fatedier/frp/releases) 下载对应平台压缩包，解压得到 `frpc`。
-2. 把复制的 `frpc.toml` 放到同目录，内容大致如下：
+## 典型使用流程
 
-   ```toml
-   # frpc 客户端配置（在内网机器上运行 frpc）
-   serverAddr = "108.165.122.146"
-   serverPort = 30085
-   auth.method = "token"
-   auth.token = "脚本生成的token"
-   transport.tls.enable = true
+### 场景 1：远程 VPS 部署 `frps` + 联动 Caddy 反代内网 Web / NAS
 
-   # 玩家连接: 108.165.122.146:30008
-   [[proxies]]
-   name = "mc-java"
-   type = "tcp"
-   localIP = "127.0.0.1"
-   localPort = 25565
-   remotePort = 30008
-   ```
+1. 在 **远程 VPS** 打开 WebUI（切换顶部模式为「远程 VPS 模式」）。
+2. 在 **「1. 穿透服务端 (frps)」** 点击 **「+ 添加穿透服务」**：
+   - 选择预设（如 `Web 网站`、`NAS 存储` 或 `Minecraft Java`）。
+   - 若是 Web/NAS 服务，在下方 **「联动 Caddy 域名反代」** 填入你的域名（如 `nas.example.com` 或 NAT VPS 非标端口 `nas.example.com:8443`），保存后会自动同步生成 Caddy 反代规则。
+3. 点击顶部状态卡中的 `frps` 与 `Caddy` 的 **「启动/安装」**。
+4. 点击 **「📋 导出客户端连接码 / frpc.toml」**，复制生成的 `autof://...` 连接码。
 
-3. 启动：`./frpc -c frpc.toml`（Windows：`frpc.exe -c frpc.toml`），看到 `start proxy success` 即成功。
+### 场景 2：本地服务器一键导入并启动 `frpc` + 本地局域网反代
 
-### 4. 验证
+1. 在 **本地服务器 / NAS** 上安装 `autof` 并打开 WebUI（切换顶部模式为「本地服务器模式」）。
+2. 在 **「2. 穿透客户端 (frpc)」** 点击 **「📥 一键导入连接码 / frpc.toml」**，粘贴刚才复制的 `autof://...` 连接码，点击「解析并应用配置」。
+3. 点击顶部 `frpc` 状态卡的 **「启动/安装」**，即可连上远程 VPS！后续在本地新增或修改穿透隧道（支持填写局域网其他设备 IP 如 `192.168.1.50`），保存即自动热重载，不断开已有连接。
+4. 如需在本地局域网统一反代各容器端口，进入 **「3. Caddy 快速反代」** 添加规则，可选择「纯 HTTP」、「局域网自签 HTTPS (`tls internal`)」或配置 Cloudflare DNS Token 申请真实域名证书。
 
-玩家连接 **`公网IP:30008`**。
+---
 
-## 命令行
+## 命令行参考 (CLI)
 
 ```bash
-sudo autof              # 主界面
-sudo autof list         # 服务列表
-sudo autof gen frps     # 打印 frps.toml
-sudo autof gen frpc     # 打印 frpc.toml
-sudo autof install      # 安装并启动 frps
-sudo autof net 4        # 网络偏好：仅 IPv4（6=仅 IPv6，both=均可）
-sudo autof start        # 启动
-sudo autof status       # 运行状态
-sudo autof restart      # 重启
-sudo autof stop         # 停止
-sudo autof logs         # 日志
-sudo autof uninstall    # 完全卸载
-sudo autof self-update  # 更新脚本自身
+sudo autof                          # 进入终端交互主菜单
+sudo autof web-install              # 安装并启动 WebUI 后台服务 (systemd)
+sudo autof web --listen :7500       # 前台运行 WebUI 服务
+sudo autof status                   # 查看网络、组件状态及 WebUI 登录账号密码
+sudo autof list                     # 查看所有穿透规则与 Caddy 反代列表
+sudo autof export                   # 导出客户端 autof:// 连接码与 frpc.toml
+sudo autof import "autof://..."     # 在本地服务器一键导入连接码或 frpc.toml 文件
+sudo autof gen frps                 # 打印 frps.toml
+sudo autof gen frpc                 # 打印导出用 frpc.toml
+sudo autof gen frpc-client          # 打印本机客户端 frpc.toml
+sudo autof gen caddy                # 打印生成的 Caddyfile
+sudo autof gen code                 # 打印 autof:// 连接码
+sudo autof install all              # 一键安装 frps + frpc + caddy + web 服务
+sudo autof start|stop|restart|reload|logs [frps|frpc|caddy|autof]
+sudo autof net 4|6|both             # 设置网络偏好（仅 IPv4 / 仅 IPv6 / 双栈）
+sudo autof pwd [新密码]             # 查看或重置 WebUI 登录密码
+sudo autof uninstall                # 完全卸载（停止服务并清理配置与程序）
 ```
 
-## 常见问题
+---
 
-**端口能连上，但进不去服务？**
-`nc -vz 公网IP 对外端口` 能连上只说明 `frps` 通了，问题出在 `frpc -> 服务`。本脚本固定 `localIP = 127.0.0.1`，所以 **`frpc` 必须和服务跑在同一台机器（或同一容器）**。若 `frpc` 在容器、服务在宿主机，需把 `localIP` 改成宿主机地址。
-
-**`frpc.toml` 里 `remotePort` 和玩家端口是什么关系？**
-相等。`remotePort = 对外端口 = 玩家连接端口`。
-
-**报错 `json: unknown field "allowPorts"`？**
-把 `frps.toml` 当成客户端配置用了。`frpc` 只能用 `autof gen frpc` 的输出。
-
-**看日志**：`sudo autof logs`。
-
-## 文件位置
+## 文件与目录结构
 
 | 路径 | 说明 |
 | --- | --- |
-| `/etc/autof/state.conf` | 控制端口、token、网络偏好 |
-| `/etc/autof/services.conf` | 服务列表 |
-| `/etc/autof/frps.toml` | 生成的 frps 配置 |
-| `/etc/autof/clients/frpc.toml` | 生成的 frpc 配置 |
-| `/usr/local/bin/frps` | frps 程序 |
-| `/usr/local/bin/autof` | 本脚本（安装为命令后） |
-| `/etc/systemd/system/frps.service` | 开机自启 |
+| `/etc/autof/config.json` | 统一结构化配置文件（含网络、WebUI、frps、frpc、Caddy 规则） |
+| `/etc/autof/frps.toml` | 自动生成的 `frps` 服务端配置 |
+| `/etc/autof/frpc.toml` | 自动生成的本地 `frpc` 客户端运行配置 |
+| `/etc/autof/clients/frpc.toml` | 自动生成的供导出客户端配置 |
+| `/etc/autof/Caddyfile` | 自动生成并经语法校验的 `Caddyfile` |
+| `/usr/local/bin/autof` | Autofrp 主程序（含内嵌 WebUI） |
+| `/usr/local/bin/frps` & `frpc` | 自动下载安装的 frp 服务端与客户端 |
+| `/usr/local/bin/caddy` | 自动下载安装的 Caddy 程序 |
 
-非 root 运行时配置目录回退到 `~/.config/autof`。
+> 非 root 用户运行时配置目录自动回退至 `~/.config/autof`（或通过环境变量 `AUTOF_STATE_DIR` 指定）。
 
-## 环境要求
-
-- Linux，bash 4+
-- 依赖 `curl`、`ip`、`tar`（缺失时自动尝试安装）
-- 安装 `frps` 需要 root
+---
 
 ## 版权与免责声明
 
-- **非官方项目**：Autofrp 为第三方辅助脚本，与 [fatedier/frp](https://github.com/fatedier/frp) 及其作者无任何隶属、赞助或背书关系。
-- **frp 版权**：`frp` / `frps` / `frpc` 著作权归原作者所有，遵循 [Apache License 2.0](https://github.com/fatedier/frp/blob/master/LICENSE)。本脚本不包含、不修改、不重新分发 frp 的源代码或二进制，仅在运行时从官方 GitHub Release 下载。
-- **本脚本许可**：[MIT License](LICENSE)。
-- **免责**：脚本按「现状」提供，不提供任何担保。进行端口映射、内网穿透时，请自行确保符合当地法律法规、服务商条款及所运行服务的授权许可，后果自负。
+- **非官方项目**：Autofrp 为第三方辅助管理工具，与 [fatedier/frp](https://github.com/fatedier/frp) 及 [caddyserver/caddy](https://github.com/caddyserver/caddy) 无隶属关系。
+- **组件版权**：`frp` 遵循 Apache-2.0 许可，`Caddy` 遵循 Apache-2.0 许可，二进制文件均在运行时按需从官方源下载。
+- **本项目许可**：[MIT License](LICENSE)。
