@@ -234,7 +234,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.1.3"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.1.4"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -256,7 +256,9 @@ function render() {
     navFrpsCount: (pick(cfg, "frps.services", []) || []).length,
     navFrpcCount: (pick(cfg, "frpc.tunnels", []) || []).length,
     navCaddyCount: (pick(cfg, "caddy.rules", []) || []).filter((r) => r.enabled).length,
-    navCertCount: (pick(cfg, "caddy.certificates", []) || []).length,
+    navCertCount:
+      (pick(cfg, "caddy.certificates", []) || []).length +
+      (d.certificates || []).filter((c) => !c.managedId).length,
   };
   Object.entries(counts).forEach(([id, n]) => {
     const el = $(id);
@@ -727,6 +729,11 @@ function renderCerts() {
         <td data-label="路径"><span class="mono">${esc(c.certPath)}</span></td>
         <td data-label="操作"><div class="cell-actions">
           <button class="btn btn-sm" data-cert-pem-unmanaged="${idx}">${icon("key", 13)}导出</button>
+          ${
+            c.source === "panel" || (state.data.stateDir && c.certPath && c.certPath.startsWith(state.data.stateDir + "/certs/"))
+              ? `<button class="btn btn-sm btn-danger" data-cert-file-del="${idx}">${icon("trash", 13)}删除</button>`
+              : ""
+          }
         </div></td>
       </tr>`);
     });
@@ -818,6 +825,24 @@ async function deleteCert(id, btn) {
       state.data = await api(`/api/cert?id=${encodeURIComponent(id)}&purge=${purge}`, { method: "DELETE" });
       render();
       toast(purge === "1" ? "证书已删除" : "已移除托管记录（保留文件）", "ok");
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, "err");
+    }
+  });
+}
+
+async function deleteCertFile(c, btn) {
+  const ok = await confirmDialog({
+    title: "删除证书文件",
+    text: `将删除 ${c.certPath} 及匹配的私钥文件，且不可恢复。`,
+    okText: "删除",
+  });
+  if (!ok) return;
+  await withBusy(btn, async () => {
+    try {
+      state.data = await api(`/api/cert?path=${encodeURIComponent(c.certPath)}`, { method: "DELETE" });
+      render();
+      toast("证书文件已删除", "ok");
     } catch (err) {
       if (!(err instanceof AuthError)) toast(err.message, "err");
     }
@@ -1008,7 +1033,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.1.3")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.1.4")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
@@ -2113,7 +2138,7 @@ function bindEvents() {
 
   // delegated row actions
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-svc],[data-edit-frps],[data-del-frps],[data-edit-frpc],[data-del-frpc],[data-edit-caddy],[data-del-caddy],[data-cert-renew],[data-cert-del],[data-cert-pem],[data-cert-pem-unmanaged],[data-edit-app],[data-takeover],[data-close],[data-copy],[data-copy-input],[data-copy-code]");
+    const t = e.target.closest("[data-svc],[data-edit-frps],[data-del-frps],[data-edit-frpc],[data-del-frpc],[data-edit-caddy],[data-del-caddy],[data-cert-renew],[data-cert-del],[data-cert-pem],[data-cert-pem-unmanaged],[data-cert-file-del],[data-edit-app],[data-takeover],[data-close],[data-copy],[data-copy-input],[data-copy-code]");
     if (!t) return;
 
     if (t.dataset.close) {
@@ -2180,6 +2205,11 @@ function bindEvents() {
     if (t.dataset.certPemUnmanaged !== undefined) {
       const c = (state.unmanagedCerts || [])[Number(t.dataset.certPemUnmanaged)];
       if (c) openPemModal(c.certPath, c.keyPath);
+      return;
+    }
+    if (t.dataset.certFileDel !== undefined) {
+      const c = (state.unmanagedCerts || [])[Number(t.dataset.certFileDel)];
+      if (c) deleteCertFile(c, t);
       return;
     }
     if (t.dataset.editApp) {

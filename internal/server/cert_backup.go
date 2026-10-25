@@ -179,6 +179,12 @@ func (s *Server) handleCertDelete(w http.ResponseWriter, r *http.Request) {
 	purge := r.URL.Query().Get("purge") == "1"
 	force := r.URL.Query().Get("force") == "1"
 
+	// 没有托管 ID、但带了路径：删除未托管的证书文件（如历史上生成的面板自签证书）
+	if id == "" && strings.TrimSpace(r.URL.Query().Get("path")) != "" {
+		s.deleteCertFile(w, r)
+		return
+	}
+
 	cfg := s.store.Get()
 	var entry *config.CertEntry
 	for i := range cfg.Caddy.Certificates {
@@ -221,6 +227,66 @@ func (s *Server) handleCertDelete(w http.ResponseWriter, r *http.Request) {
 		c.Caddy.Certificates = kept
 		return nil
 	})
+	writeJSON(w, http.StatusOK, s.buildOverviewResponse())
+}
+
+func (s *Server) deleteCertFile(w http.ResponseWriter, r *http.Request) {
+	rawPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	force := r.URL.Query().Get("force") == "1"
+	clean := filepath.Clean(rawPath)
+	stateDir := filepath.Clean(s.store.StateDir())
+
+	if !filepath.IsAbs(clean) || !strings.HasPrefix(clean, stateDir+string(os.PathSeparator)) {
+		if !force {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "出于安全考虑，只允许删除 " + stateDir + " 下的证书"})
+			return
+		}
+	}
+	rel, _ := filepath.Rel(stateDir, clean)
+	if !force && !strings.HasPrefix(rel, "certs"+string(os.PathSeparator)) && !strings.HasPrefix(rel, "tls"+string(os.PathSeparator)) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "只允许删除 certs/ 与 tls/ 目录下的证书"})
+		return
+	}
+
+	cfg := s.store.Get()
+	for _, rule := range cfg.Caddy.Rules {
+		if rule.CertFile == "" {
+			continue
+		}
+		if filepath.Clean(rule.CertFile) == clean || (rule.KeyFile != "" && filepath.Clean(rule.KeyFile) == clean) {
+			if !force {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "该证书仍被 Caddy 规则 [" + rule.Listen + "] 引用，请先修改规则或使用 --force"})
+				return
+			}
+		}
+	}
+
+	base := filepath.Base(clean)
+	dir := filepath.Dir(clean)
+	keyPath := ""
+	switch {
+	case base == "fullchain.pem":
+		keyPath = filepath.Join(dir, "privkey.pem")
+	case strings.HasSuffix(base, ".crt"):
+		keyPath = strings.TrimSuffix(clean, ".crt") + ".key"
+	}
+
+	if _, err := os.Stat(clean); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "证书文件不存在"})
+		return
+	}
+	if err := os.Remove(clean); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "删除失败: " + err.Error()})
+		return
+	}
+	if keyPath != "" {
+		_ = os.Remove(keyPath)
+	}
+	if strings.HasPrefix(rel, "certs"+string(os.PathSeparator)) {
+		if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+			_ = os.Remove(dir)
+		}
+	}
 	writeJSON(w, http.StatusOK, s.buildOverviewResponse())
 }
 
