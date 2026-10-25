@@ -2,14 +2,14 @@ package frp
 
 // Preset 定义常用的内网穿透服务预设模板
 type Preset struct {
-	Key           string `json:"key"`
-	Label         string `json:"label"`
-	DefaultName   string `json:"defaultName"`
-	Type          string `json:"type"`
-	LocalPort     int    `json:"localPort"`
-	RemotePort    int    `json:"remotePort"`
-	SuggestCaddy  bool   `json:"suggestCaddy"`
-	Description   string `json:"description"`
+	Key          string `json:"key"`
+	Label        string `json:"label"`
+	DefaultName  string `json:"defaultName"`
+	Type         string `json:"type"`
+	LocalPort    int    `json:"localPort"`
+	RemotePort   int    `json:"remotePort"`
+	SuggestCaddy bool   `json:"suggestCaddy"`
+	Description  string `json:"description"`
 }
 
 // BuiltinPresets 返回内置的快捷穿透预设列表

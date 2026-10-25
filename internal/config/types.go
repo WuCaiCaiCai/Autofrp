@@ -7,13 +7,14 @@ const (
 
 // Config 保存 Autofrp 的完整配置与状态（远程 VPS 与本地服务器通用）
 type Config struct {
-	Version  string      `json:"version"`
-	NodeRole string      `json:"nodeRole"` // "vps", "local", "both"
-	Network  NetConfig   `json:"network"`
-	Web      WebConfig   `json:"web"`
-	Frps     FrpsConfig  `json:"frps"`
-	Frpc     FrpcConfig  `json:"frpc"`
-	Caddy    CaddyConfig `json:"caddy"`
+	Version        string      `json:"version"`
+	NodeRole       string      `json:"nodeRole"`       // "vps", "local", "both"
+	SetupCompleted bool        `json:"setupCompleted"` // 是否已完成初始化向导（旧版迁移用户自动视为已完成）
+	Network        NetConfig   `json:"network"`
+	Web            WebConfig   `json:"web"`
+	Frps           FrpsConfig  `json:"frps"`
+	Frpc           FrpcConfig  `json:"frpc"`
+	Caddy          CaddyConfig `json:"caddy"`
 }
 
 // NetConfig 保存网络探测状态与双栈偏好

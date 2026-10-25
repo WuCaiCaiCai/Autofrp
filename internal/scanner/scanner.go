@@ -20,7 +20,7 @@ import (
 type DetectedApp struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
-	Category       string   `json:"category"`       // "caddy", "frp", "npm", "nginx", "other"
+	Category       string   `json:"category"` // "caddy", "frp", "npm", "nginx", "other"
 	Running        bool     `json:"running"`
 	PID            int      `json:"pid"`
 	Container      string   `json:"container"`      // 若为 Docker 容器则记录容器名

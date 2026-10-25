@@ -10,12 +10,12 @@ import (
 
 // SystemInfo 描述当前 Linux 发行版与运行环境信息
 type SystemInfo struct {
-	DistroID     string `json:"distroId"`     // debian, ubuntu, deepin, fedora, arch, alpine 等
-	DistroLike   string `json:"distroLike"`   // ID_LIKE
-	PrettyName   string `json:"prettyName"`   // 如 "Debian GNU/Linux 12 (bookworm)", "Deepin 23", "Fedora Linux 41", "Arch Linux"
-	PkgManager   string `json:"pkgManager"`   // apt, dnf, yum, pacman, zypper, apk, opkg
-	InitSystem   string `json:"initSystem"`   // systemd, openrc, daemon
-	Arch         string `json:"arch"`         // amd64, arm64, arm, 386, riscv64, loong64
+	DistroID   string `json:"distroId"`   // debian, ubuntu, deepin, fedora, arch, alpine 等
+	DistroLike string `json:"distroLike"` // ID_LIKE
+	PrettyName string `json:"prettyName"` // 如 "Debian GNU/Linux 12 (bookworm)", "Deepin 23", "Fedora Linux 41", "Arch Linux"
+	PkgManager string `json:"pkgManager"` // apt, dnf, yum, pacman, zypper, apk, opkg
+	InitSystem string `json:"initSystem"` // systemd, openrc, daemon
+	Arch       string `json:"arch"`       // amd64, arm64, arm, 386, riscv64, loong64
 }
 
 // DetectSystemInfo 识别当前 Linux 发行版（适配 Debian / Deepin / Fedora / Arch / Alpine 等）
