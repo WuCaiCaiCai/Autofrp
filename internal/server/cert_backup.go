@@ -176,6 +176,41 @@ func (s *Server) handleCertDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	purge := r.URL.Query().Get("purge") == "1"
+	force := r.URL.Query().Get("force") == "1"
+
+	cfg := s.store.Get()
+	var entry *config.CertEntry
+	for i := range cfg.Caddy.Certificates {
+		if cfg.Caddy.Certificates[i].ID == id {
+			entry = &cfg.Caddy.Certificates[i]
+			break
+		}
+	}
+	if entry == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "未找到该证书"})
+		return
+	}
+
+	if purge {
+		// 被 Caddy 规则引用时不允许直接删除文件
+		if !force {
+			for _, rule := range cfg.Caddy.Rules {
+				if rule.CertFile != "" && strings.HasPrefix(filepath.Clean(rule.CertFile), filepath.Clean(entry.TargetDir)+string(os.PathSeparator)) {
+					writeJSON(w, http.StatusBadRequest, map[string]string{
+						"error": "该证书仍被 Caddy 规则 [" + rule.Listen + "] 引用，请先修改规则或使用 --force",
+					})
+					return
+				}
+			}
+		}
+		if err := cert.PurgeFiles(s.store, *entry); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	_ = cert.Remove(s.store, *entry)
 	_ = s.store.Update(func(c *config.Config) error {
 		kept := make([]config.CertEntry, 0, len(c.Caddy.Certificates))
 		for _, e := range c.Caddy.Certificates {

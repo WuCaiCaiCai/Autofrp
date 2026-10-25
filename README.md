@@ -179,6 +179,15 @@ Debian / Deepin / Fedora / Arch / Alpine 等；自动处理 SELinux 上下文、
 2. 「证书管理 → 申请证书」填写域名，例如 `example.com, *.example.com`，选择密钥类型与输出目录。
 3. 证书文件会写入输出目录（默认 `/etc/autof/certs/<域名>/`）：`fullchain.pem` + `privkey.pem`。
 4. 面板每 12 小时检查一次续期；也可以点「续期」立即更新。续期后若 Caddy 规则引用了该目录会自动 reload。
+5. 删除证书：面板证书列表点「删除」（可勾选同时删除文件），或命令行：
+
+   ```bash
+   sudo autof cert delete <证书ID或域名>              # 默认删除文件
+   sudo autof cert delete <证书ID或域名> --keep-files # 仅移除托管记录
+   sudo autof cert delete <证书ID或域名> --force      # 被 Caddy 规则引用时强制删除
+   ```
+
+> 面板的 HTTPS 与 Caddy 反代都会直接读取「证书管理」里的证书：设置页可选「证书管理中的证书」，Caddy 规则选「自定义证书」时也可从下拉框选择。
 
 > **给 Docker 里的 NPM**：NPM 的证书存在自己的数据库里，不能靠替换文件生效。本工具提供「导出 PEM」，复制到 NPM 的 *SSL Certificates → Add → Custom Certificate* 即可；续期后需要重新粘贴一次。不会修改 NPM 数据库、容器或 compose。
 
@@ -257,6 +266,7 @@ sudo autof pwd [新密码]             # 查看或重置 WebUI 密码
 sudo autof backup [文件]            # 导出配置/证书备份（--no-secrets 脱敏）
 sudo autof restore <文件>           # 从备份恢复（--keep-creds 保留面板密码）
 sudo autof cert list                # 查看证书与剩余天数
+sudo autof cert delete <ID|域名>    # 删除证书（--keep-files / --force）
 sudo autof uninstall                # 完全卸载
 ```
 

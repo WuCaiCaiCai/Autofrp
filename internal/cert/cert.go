@@ -432,7 +432,7 @@ func ReadInfo(certPath, keyPath, source string) Info {
 
 // Discover 扫描本机已有证书（Autofrp 托管 / Caddy 存储 / 面板自签）
 func Discover(store *config.Store) []Info {
-	var out []Info
+	out := []Info{}
 	seen := map[string]bool{}
 
 	add := func(certPath, keyPath, source string) {
@@ -498,4 +498,38 @@ func MatchManaged(infos []Info, entries []config.CertEntry) []Info {
 func Installed(store *config.Store) bool {
 	st, err := os.Stat(acmeScript(store))
 	return err == nil && !st.IsDir()
+}
+
+// Remove 从 acme.sh 的续期列表中移除证书（不删除已安装文件）
+func Remove(store *config.Store, entry config.CertEntry) error {
+	script := acmeScript(store)
+	if _, err := os.Stat(script); err != nil {
+		return nil
+	}
+	domains, err := NormalizeDomains(entry.Domains)
+	if err != nil {
+		return err
+	}
+	args := []string{"--remove", "--home", acmeHome(store), "-d", primaryDomain(domains)}
+	if strings.HasPrefix(entry.KeyType, "ec") {
+		args = append(args, "--ecc")
+	}
+	_, _ = runAcme(script, nil, args...)
+	return nil
+}
+
+// PurgeFiles 删除证书输出目录（仅允许 /etc/autof 下的目录，避免误删系统文件）
+func PurgeFiles(store *config.Store, entry config.CertEntry) error {
+	dir := filepath.Clean(entry.TargetDir)
+	stateDir := filepath.Clean(store.StateDir())
+	if dir == "" || dir == "/" || len(dir) < len(stateDir)+1 {
+		return errors.New("输出目录不合法，拒绝删除")
+	}
+	if !strings.HasPrefix(dir, stateDir+string(os.PathSeparator)) {
+		return errors.New("出于安全考虑，只允许删除 " + stateDir + " 下的证书目录")
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return nil
 }

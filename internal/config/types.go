@@ -2,7 +2,7 @@ package config
 
 const (
 	AppName    = "autof"
-	AppVersion = "1.1.0"
+	AppVersion = "1.1.1"
 )
 
 // Config 保存 Autofrp 的完整配置与状态（远程 VPS 与本地服务器通用）
