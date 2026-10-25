@@ -234,7 +234,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.1.4"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.1.5"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -413,9 +413,12 @@ function renderNetwork() {
   $("netV4Tag").textContent = net.v4Status || "-";
   $("netV6Tag").textContent = net.v6Status || "-";
 
-  const host = publicAddr(cfg);
-  const port = String(pick(cfg, "web.listenAddr", "0.0.0.0:7500")).split(":").pop();
-  setText("netAccess", host ? `${host}:${port}` : "-");
+  const port = String(pick(cfg, "web.listenAddr", "0.0.0.0:7500")).split(":").pop() || "7500";
+  const lanHost = net.localIPv4 || "";
+  const wanHost = publicAddr(cfg);
+  const fmtHost = (h) => (h && h.includes(":") && !h.startsWith("[") ? `[${h}]` : h);
+  setText("netAccessLan", lanHost ? `http://${fmtHost(lanHost)}:${port}` : "-");
+  setText("netAccessWan", wanHost ? `http://${fmtHost(wanHost)}:${port}` : "-");
 
   $("ipPrefSelect").value = net.ipPref || "4";
 }
@@ -1033,7 +1036,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.1.4")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.1.5")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
