@@ -67,6 +67,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/overview", s.withAuth(s.handleOverview))
 	s.mux.HandleFunc("/api/net/refresh", s.withAuth(s.handleNetRefresh))
 	s.mux.HandleFunc("/api/net/pref", s.withAuth(s.handleNetPref))
+	s.mux.HandleFunc("/api/system/init", s.withAuth(s.handleSystemInit))
+	s.mux.HandleFunc("/api/frpc/parse", s.withAuth(s.handleFrpcParse))
 	s.mux.HandleFunc("/api/service/action", s.withAuth(s.handleServiceAction))
 	s.mux.HandleFunc("/api/service/logs", s.withAuth(s.handleServiceLogs))
 

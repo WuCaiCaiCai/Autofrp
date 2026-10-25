@@ -107,7 +107,10 @@ sudo install -m 0755 autof /usr/local/bin/autof
 <tr><td width="50%" valign="top">
 
 **🖥 单二进制 + 内嵌 WebUI**
-Go `embed.FS` 打包前端，零依赖；顶部可在「全部模块 / 远程 VPS 模式 / 本地服务器模式」间切换。
+Go `embed.FS` 打包前端，零依赖；侧边栏式控制台，支持 `#/setup`、`#/caddy` 等深链接与移动端自适应。
+
+**🚀 首次引导 + 旧版继承**
+三步初始化向导（角色 / 网络 / 组件）完成后可选一键启动；v1.x 的 `state.conf` / `services.conf` 自动迁移并跳过向导。
 
 **🔗 双端独立 + 连接码**
 VPS 端导出 `autof://` 连接码或 `frpc.toml`，本地端粘贴即完成对接。

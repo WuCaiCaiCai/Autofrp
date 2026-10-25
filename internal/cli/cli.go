@@ -162,6 +162,18 @@ func runWebDaemon(store *config.Store, listenOverride string) error {
 	_ = frp.WriteConfigs(store)
 	_ = caddy.WriteAndApply(store, false)
 	cfg := store.Get()
+	// 首次启动时后台异步探测网络，避免阻塞 WebUI 首屏
+	if cfg.Network.PublicIPv4 == "" && cfg.Network.PublicIPv6 == "" && cfg.Network.LocalIPv4 == "" {
+		go func() {
+			netCfg := cfg.Network
+			netenv.DetectAndApply(&netCfg)
+			_ = store.Update(func(c *config.Config) error {
+				c.Network = netCfg
+				return nil
+			})
+			_ = frp.WriteConfigs(store)
+		}()
+	}
 	addr := cfg.Web.ListenAddr
 	if listenOverride != "" {
 		addr = listenOverride

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -137,6 +138,10 @@ func (s *Store) Load() error {
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return fmt.Errorf("解析配置文件失败 %s: %w", cfgPath, err)
 		}
+		// 旧版 config.json（无 setupCompleted 字段）说明用户早已配置过，视为已完成初始化
+		if !bytes.Contains(data, []byte(`"setupCompleted"`)) {
+			cfg.SetupCompleted = true
+		}
 		normalizeConfig(cfg)
 		s.cfg = cfg
 		return nil
@@ -145,12 +150,61 @@ func (s *Store) Load() error {
 	// 尝试从 v1 (state.conf + services.conf) 迁移
 	cfg := DefaultConfig()
 	migrated := migrateLegacyV1(s.stateDir, cfg)
+	if migrated {
+		// 旧版用户已有可用配置，直接视为已完成初始化，避免弹出向导
+		cfg.SetupCompleted = true
+	}
 	normalizeConfig(cfg)
 	s.cfg = cfg
 	if migrated {
 		_ = s.saveLocked()
 	}
 	return nil
+}
+
+// LegacyStatus 描述旧版 v1 配置文件的残留情况，用于在 WebUI 中提示迁移结果
+type LegacyStatus struct {
+	Detected       bool   `json:"detected"`       // 是否发现旧版配置文件
+	StateFile      string `json:"stateFile"`      // state.conf 路径
+	ServicesFile   string `json:"servicesFile"`   // services.conf 路径
+	Migrated       bool   `json:"migrated"`       // 当前配置是否由旧版迁移而来
+	ServiceCount   int    `json:"serviceCount"`   // 旧版服务条数
+	LegacyPort     int    `json:"legacyPort"`     // 旧版控制端口
+	ConfigImported bool   `json:"configImported"` // config.json 是否已存在
+}
+
+// LegacyStatus 检测旧版配置残留
+func (s *Store) LegacyStatus() LegacyStatus {
+	stateFile := filepath.Join(s.stateDir, "state.conf")
+	servicesFile := filepath.Join(s.stateDir, "services.conf")
+	st := LegacyStatus{StateFile: stateFile, ServicesFile: servicesFile}
+
+	if _, err := os.Stat(stateFile); err == nil {
+		st.Detected = true
+	}
+	if data, err := os.ReadFile(servicesFile); err == nil && len(data) > 0 {
+		st.Detected = true
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) != "" {
+				st.ServiceCount++
+			}
+		}
+	}
+	if data, err := os.ReadFile(stateFile); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "CONTROL_PORT=") {
+				if p, err := strconv.Atoi(strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "CONTROL_PORT=")), `"'`)); err == nil {
+					st.LegacyPort = p
+				}
+			}
+		}
+	}
+	if _, err := os.Stat(s.ConfigPath()); err == nil {
+		st.ConfigImported = true
+	}
+	st.Migrated = st.Detected && st.ConfigImported
+	return st
 }
 
 // Save 将当前配置原子写入磁盘

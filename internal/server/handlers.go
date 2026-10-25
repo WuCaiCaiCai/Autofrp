@@ -21,12 +21,15 @@ func (s *Server) buildOverviewResponse() map[string]any {
 
 	return map[string]any{
 		"config":       cfg,
+		"stateDir":     s.store.StateDir(),
 		"systemInfo":   netenv.DetectSystemInfo(),
 		"detectedApps": scanner.ScanServer(s.store.StateDir()),
+		"legacy":       s.store.LegacyStatus(),
 		"services": map[string]any{
 			"frps":  systemd.QueryStatus("frps"),
 			"frpc":  systemd.QueryStatus("frpc"),
 			"caddy": systemd.QueryStatus("caddy"),
+			"autof": systemd.QueryStatus("autof"),
 		},
 		"presets": frp.BuiltinPresets(),
 		"exports": map[string]string{
@@ -156,6 +159,17 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			}
 		case "stop":
 			err = systemd.Control("caddy", "stop", systemd.FindBinary("caddy"), nil, s.store.StateDir(), nil)
+		default:
+			err = errors.New("不支持的操作")
+		}
+	case "autof":
+		switch req.Action {
+		case "restart", "start", "stop", "reload":
+			action := req.Action
+			if action == "start" {
+				action = "restart"
+			}
+			err = systemd.Control("autof", action, systemd.FindBinary("autof"), []string{"web"}, s.store.StateDir(), nil)
 		default:
 			err = errors.New("不支持的操作")
 		}
@@ -511,6 +525,89 @@ func (s *Server) handleSystemWeb(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400 * 30,
 	})
 	writeJSON(w, http.StatusOK, s.buildOverviewResponse())
+}
+
+// handleSystemInit 处理首次初始化向导：写入角色、网络偏好、控制端口与 Token
+func (s *Server) handleSystemInit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+	var req struct {
+		NodeRole    string `json:"nodeRole"`
+		IPPref      string `json:"ipPref"`
+		ControlPort int    `json:"controlPort"`
+		Token       string `json:"token"`
+		FrpcAddr    string `json:"frpcAddr"`
+		FrpcPort    int    `json:"frpcPort"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	err := s.store.Update(func(c *config.Config) error {
+		switch req.NodeRole {
+		case "vps", "local", "both":
+			c.NodeRole = req.NodeRole
+		}
+		switch req.IPPref {
+		case "4", "6", "both":
+			c.Network.IPPref = req.IPPref
+		}
+		if req.ControlPort >= 1 && req.ControlPort <= 65535 {
+			c.Frps.ControlPort = req.ControlPort
+			if c.Frpc.ServerAddr == "" && c.NodeRole != "local" {
+				c.Frpc.ServerPort = req.ControlPort
+			}
+		}
+		if t := strings.TrimSpace(req.Token); t != "" {
+			c.Frps.Token = t
+		}
+		if a := strings.TrimSpace(req.FrpcAddr); a != "" {
+			c.Frpc.ServerAddr = a
+		}
+		if req.FrpcPort >= 1 && req.FrpcPort <= 65535 {
+			c.Frpc.ServerPort = req.FrpcPort
+		}
+		c.SetupCompleted = true
+		return nil
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = frp.WriteConfigs(s.store)
+	_ = caddy.WriteAndApply(s.store, false)
+	writeJSON(w, http.StatusOK, s.buildOverviewResponse())
+}
+
+// handleFrpcParse 解析连接码 / frpc.toml，供导入前预览
+func (s *Server) handleFrpcParse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+	var req struct {
+		Input string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	bundle, err := config.ParseImportInput(req.Input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"serverAddr":  bundle.ServerAddr,
+		"serverPort":  bundle.ServerPort,
+		"altIPv6":     bundle.ServerAltIP6,
+		"hasToken":    bundle.Token != "",
+		"tlsEnable":   bundle.TLSEnable,
+		"tunnelCount": len(bundle.Tunnels),
+		"tunnels":     bundle.Tunnels,
+	})
 }
 
 func (s *Server) handleScannerFile(w http.ResponseWriter, r *http.Request) {

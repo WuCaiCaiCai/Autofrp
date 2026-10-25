@@ -3,757 +3,1063 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autofrp · 穿透与 Caddy 反代控制台</title>
+  <meta name="color-scheme" content="dark" />
+  <title>Autofrp · 穿透与反代控制台</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="container">
-    <!-- 顶部栏 -->
-    <header class="topbar">
+  <!-- ==================== SVG icon sprite ==================== -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <g id="i-grid" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></g>
+      <g id="i-server" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></g>
+      <g id="i-laptop" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="10" rx="1.6"/><path d="M2 19h20"/></g>
+      <g id="i-globe" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 2.6 15.4 0 18M12 3c-2.6 2.6-2.6 15.4 0 18"/></g>
+      <g id="i-search" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></g>
+      <g id="i-terminal" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></g>
+      <g id="i-plus" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></g>
+      <g id="i-refresh" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></g>
+      <g id="i-play" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5 19 12 7 19.5z"/></g>
+      <g id="i-stop" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></g>
+      <g id="i-rotate" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></g>
+      <g id="i-edit" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></g>
+      <g id="i-trash" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></g>
+      <g id="i-copy" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></g>
+      <g id="i-download" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 11l5 5 5-5M4 21h16"/></g>
+      <g id="i-upload" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 21h16"/></g>
+      <g id="i-x" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></g>
+      <g id="i-check" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5 5L20 6.5"/></g>
+      <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19z"/><path d="M12 9v5M12 17.5h.01"/></g>
+      <g id="i-info" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></g>
+      <g id="i-chevron" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></g>
+      <g id="i-key" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/></g>
+      <g id="i-network" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2" y="16" width="6" height="5" rx="1.2"/><rect x="16" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5 16v-2a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2"/></g>
+      <g id="i-shield" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v6c0 4.2 3.2 7.6 7.5 9 4.3-1.4 7.5-4.8 7.5-9V6z"/><path d="m9 12 2 2 4-4"/></g>
+      <g id="i-file" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></g>
+      <g id="i-link" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></g>
+      <g id="i-box" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8.5 12 3 3 8.5v7L12 21l9-5.5z"/><path d="M3 8.5 12 14l9-5.5M12 14v7"/></g>
+      <g id="i-activity" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></g>
+      <g id="i-external" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></g>
+      <g id="i-lock" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></g>
+      <g id="i-rocket" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 15c-1 3 0 4 0 4s2 0 4-1"/><path d="M14.5 4.5c3-3 6.5-3 6.5-3s0 3.5-3 6.5L10 16l-2-2z"/><circle cx="15" cy="9" r="1.4"/></g>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- ==================== Sidebar ==================== -->
+    <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">A</div>
+        <div class="brand-mark" aria-hidden="true">A</div>
         <div>
-          <div class="brand-title">
-            Autofrp <span id="appVersion" class="badge badge-info">v1.0.0</span>
-            <span id="distroBadge" class="badge badge-purple" style="margin-left:4px;">Linux</span>
+          <div class="brand-name">
+            Autofrp
+            <span class="badge badge-info" id="appVersion">v1.0.0</span>
           </div>
-          <div class="brand-sub">远程 VPS &amp; 本地服务器 · 内网穿透 (frp) 与 Caddy 快速反代管理</div>
+          <div class="brand-tag">穿透 · 反代 · 一体化</div>
         </div>
       </div>
 
-      <div class="role-switch">
-        <button class="role-btn active" data-role="both" onclick="switchRole('both')">全部模块</button>
-        <button class="role-btn" data-role="vps" onclick="switchRole('vps')">远程 VPS 模式 (frps + Caddy)</button>
-        <button class="role-btn" data-role="local" onclick="switchRole('local')">本地服务器模式 (frpc + Caddy)</button>
+      <div class="nav-label">管理</div>
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item" data-view="overview" aria-current="page">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-grid"/></svg>
+          总览
+        </button>
+        <button class="nav-item" data-view="frps" data-roles="vps both">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-server"/></svg>
+          穿透服务端
+          <span class="nav-count" id="navFrpsCount">0</span>
+        </button>
+        <button class="nav-item" data-view="frpc" data-roles="local both">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-laptop"/></svg>
+          穿透客户端
+          <span class="nav-count" id="navFrpcCount">0</span>
+        </button>
+        <button class="nav-item" data-view="caddy">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-globe"/></svg>
+          Caddy 反代
+          <span class="nav-count" id="navCaddyCount">0</span>
+        </button>
+        <button class="nav-item" data-view="scanner">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
+          原服务迁移
+          <span class="nav-count hidden" id="navScannerCount">0</span>
+        </button>
+        <button class="nav-item" data-view="system">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-terminal"/></svg>
+          日志与设置
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span id="sidebarDistro">Linux</span>
+        <span id="sidebarStateDir" class="mono">/etc/autof</span>
       </div>
-    </header>
+    </aside>
 
-    <!-- 顶部状态概览卡片 -->
-    <section class="overview-grid">
-      <!-- 网络环境卡 -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🌐 网络环境与双栈偏好</span>
-          <button class="btn btn-sm" onclick="refreshNetwork()">刷新探测</button>
+    <!-- ==================== Main ==================== -->
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="page-title" id="pageTitle">总览</div>
+          <div class="page-sub" id="pageSub">服务状态、网络环境与下一步操作</div>
         </div>
-        <div class="net-row">
-          <span>IPv4 (<span id="v4Status">未探测</span>)</span>
-          <span id="pubIPv4" class="mono">-</span>
-        </div>
-        <div class="net-row">
-          <span>IPv6 (<span id="v6Status">未探测</span>)</span>
-          <span id="pubIPv6" class="mono">-</span>
-        </div>
-        <div class="net-row">
-          <span>本机内网 IP</span>
-          <span id="localIPv4" class="mono">-</span>
-        </div>
-        <div class="net-row" style="margin-top:6px;">
-          <span>网络偏好</span>
-          <select id="ipPrefSelect" style="width:140px;padding:4px 8px;" onchange="changeIPPref(this.value)">
-            <option value="4">仅 IPv4</option>
-            <option value="6">仅 IPv6</option>
-            <option value="both">均可（双栈）</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- frps 服务端状态卡 -->
-      <div class="card" id="cardFrps">
-        <div class="card-header">
-          <span class="card-title">📡 frps 服务端 (VPS)</span>
-          <span id="frpsBadge" class="badge badge-danger">未运行</span>
-        </div>
-        <div class="net-row">
-          <span>版本 / PID</span>
-          <span id="frpsMeta" class="mono">未安装</span>
-        </div>
-        <div class="net-row">
-          <span>控制端口</span>
-          <span id="frpsPortMeta" class="mono">7000</span>
-        </div>
-        <div class="btn-group" style="margin-top:12px;">
-          <button class="btn btn-sm btn-primary" onclick="serviceAction('frps','start')">启动/安装</button>
-          <button class="btn btn-sm" onclick="serviceAction('frps','restart')">重启</button>
-          <button class="btn btn-sm btn-danger" onclick="serviceAction('frps','stop')">停止</button>
-          <button class="btn btn-sm" onclick="openLogsTab('frps')">日志</button>
-        </div>
-      </div>
-
-      <!-- frpc 客户端状态卡 -->
-      <div class="card" id="cardFrpc">
-        <div class="card-header">
-          <span class="card-title">💻 frpc 客户端 (本地)</span>
-          <span id="frpcBadge" class="badge badge-danger">未运行</span>
-        </div>
-        <div class="net-row">
-          <span>版本 / PID</span>
-          <span id="frpcMeta" class="mono">未安装</span>
-        </div>
-        <div class="net-row">
-          <span>远端服务器</span>
-          <span id="frpcServerMeta" class="mono">未配置</span>
-        </div>
-        <div class="btn-group" style="margin-top:12px;">
-          <button class="btn btn-sm btn-primary" onclick="serviceAction('frpc','start')">启动/安装</button>
-          <button class="btn btn-sm" onclick="serviceAction('frpc','reload')">热重载</button>
-          <button class="btn btn-sm btn-danger" onclick="serviceAction('frpc','stop')">停止</button>
-          <button class="btn btn-sm" onclick="openLogsTab('frpc')">日志</button>
-        </div>
-      </div>
-
-      <!-- Caddy 反代状态卡 -->
-      <div class="card" id="cardCaddy">
-        <div class="card-header">
-          <span class="card-title">⚡ Caddy 反向代理</span>
-          <span id="caddyBadge" class="badge badge-danger">未运行</span>
-        </div>
-        <div class="net-row">
-          <span>版本 / PID</span>
-          <span id="caddyMeta" class="mono">未安装</span>
-        </div>
-        <div class="net-row">
-          <span>启用规则数</span>
-          <span id="caddyRulesCount" class="mono">0 条</span>
-        </div>
-        <div class="btn-group" style="margin-top:12px;">
-          <button class="btn btn-sm btn-primary" onclick="serviceAction('caddy','start')">启动/安装</button>
-          <button class="btn btn-sm" onclick="serviceAction('caddy','reload')">热重载</button>
-          <button class="btn btn-sm btn-danger" onclick="serviceAction('caddy','stop')">停止</button>
-          <button class="btn btn-sm" onclick="openLogsTab('caddy')">日志</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 探测到原版服务提示条 -->
-    <div id="detectedBanner" class="card hidden" style="margin-bottom:16px;border-color:var(--warning);background:rgba(245,158,11,0.08);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-      <div>
-        <strong style="color:#fbbf24;">🔎 检测到服务器存在原有反代或穿透服务：</strong>
-        <span id="detectedBannerText" style="font-size:13.5px;margin-left:6px;"></span>
-      </div>
-      <button class="btn btn-sm btn-primary" onclick="switchTab('scanner')">查看详情 / 在线编辑 / 一键吞并迁移 →</button>
-    </div>
-
-    <!-- 主功能导航标签页 -->
-    <nav class="tabs">
-      <button class="tab-btn active" id="tabBtnFrps" onclick="switchTab('frps')">1. 穿透服务端 (远程 VPS · frps)</button>
-      <button class="tab-btn" id="tabBtnFrpc" onclick="switchTab('frpc')">2. 穿透客户端 (本地服务器 · frpc)</button>
-      <button class="tab-btn" id="tabBtnCaddy" onclick="switchTab('caddy')">3. Caddy 快速反代 (VPS &amp; 本地通用)</button>
-      <button class="tab-btn" id="tabBtnScanner" onclick="switchTab('scanner')">4. 原服务探测与吞并 (NPM / 原版 Caddy / frp)</button>
-      <button class="tab-btn" id="tabBtnSystem" onclick="switchTab('system')">5. 日志与系统设置</button>
-    </nav>
-
-    <!-- ==================== Tab 1: 穿透服务端 (frps) ==================== -->
-    <section id="tabPanelFrps" class="tab-panel">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">frps 服务端核心参数</h3>
-            <p class="sub-hint">控制端口供内网 frpc 连接使用；NAT VPS 请在服务商后台映射「控制端口 → 同端口」</p>
+        <div class="topbar-actions">
+          <div class="segmented" role="group" aria-label="部署模式">
+            <button data-role="both" aria-pressed="true">全部</button>
+            <button data-role="vps" aria-pressed="false">远程 VPS</button>
+            <button data-role="local" aria-pressed="false">本地服务器</button>
           </div>
-          <div class="btn-group">
-            <button class="btn btn-success" onclick="openExportModal()">📋 导出客户端连接码 / frpc.toml</button>
-            <button class="btn" onclick="openPreviewModal('frps')">预览 frps.toml</button>
-            <button class="btn btn-primary" onclick="saveFrpsSettings()">保存 frps 参数</button>
-          </div>
+          <button class="btn btn-ghost btn-icon" id="btnRefreshAll" title="刷新数据" aria-label="刷新数据">
+            <svg class="i" width="17" height="17" aria-hidden="true"><use href="#i-refresh"/></svg>
+          </button>
         </div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>控制端口 (bindPort)</label>
-            <input type="number" id="frpsControlPort" min="1" max="65535" placeholder="7000" />
+      </header>
+
+      <div class="content">
+        <div id="banners" class="stack"></div>
+
+        <!-- ==================== Overview ==================== -->
+        <section class="section active" id="view-overview" aria-labelledby="ovTitle">
+          <div class="grid-stats">
+            <article class="card stat" id="statFrps">
+              <div class="stat-top">
+                <div class="stat-icon"><svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-server"/></svg></div>
+                <div>
+                  <div class="stat-name">frps 服务端</div>
+                  <div class="stat-meta" id="statFrpsMeta">未安装</div>
+                </div>
+                <span class="badge badge-off" id="statFrpsBadge" style="margin-left:auto">未运行</span>
+              </div>
+              <div class="stat-meta" id="statFrpsPort">控制端口 7000</div>
+              <div class="stat-actions">
+                <button class="btn btn-sm btn-primary" data-svc="frps" data-action="start">启动</button>
+                <button class="btn btn-sm" data-svc="frps" data-action="restart">重启</button>
+                <button class="btn btn-sm btn-ghost" data-svc="frps" data-action="stop">停止</button>
+                <button class="btn btn-sm btn-ghost" data-svc="frps" data-action="logs">日志</button>
+              </div>
+            </article>
+
+            <article class="card stat" id="statFrpc">
+              <div class="stat-top">
+                <div class="stat-icon"><svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-laptop"/></svg></div>
+                <div>
+                  <div class="stat-name">frpc 客户端</div>
+                  <div class="stat-meta" id="statFrpcMeta">未安装</div>
+                </div>
+                <span class="badge badge-off" id="statFrpcBadge" style="margin-left:auto">未运行</span>
+              </div>
+              <div class="stat-meta" id="statFrpcServer">远端未配置</div>
+              <div class="stat-actions">
+                <button class="btn btn-sm btn-primary" data-svc="frpc" data-action="start">启动</button>
+                <button class="btn btn-sm" data-svc="frpc" data-action="reload">热重载</button>
+                <button class="btn btn-sm btn-ghost" data-svc="frpc" data-action="stop">停止</button>
+                <button class="btn btn-sm btn-ghost" data-svc="frpc" data-action="logs">日志</button>
+              </div>
+            </article>
+
+            <article class="card stat" id="statCaddy">
+              <div class="stat-top">
+                <div class="stat-icon"><svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-globe"/></svg></div>
+                <div>
+                  <div class="stat-name">Caddy 反代</div>
+                  <div class="stat-meta" id="statCaddyMeta">未安装</div>
+                </div>
+                <span class="badge badge-off" id="statCaddyBadge" style="margin-left:auto">未运行</span>
+              </div>
+              <div class="stat-meta" id="statCaddyRules">0 条启用规则</div>
+              <div class="stat-actions">
+                <button class="btn btn-sm btn-primary" data-svc="caddy" data-action="start">启动</button>
+                <button class="btn btn-sm" data-svc="caddy" data-action="reload">热重载</button>
+                <button class="btn btn-sm btn-ghost" data-svc="caddy" data-action="stop">停止</button>
+                <button class="btn btn-sm btn-ghost" data-svc="caddy" data-action="logs">日志</button>
+              </div>
+            </article>
           </div>
-          <div class="form-group">
-            <label>鉴权密钥 (auth.token)</label>
-            <div style="display:flex;gap:6px;">
-              <input type="text" id="frpsToken" class="mono" />
-              <button class="btn btn-sm" onclick="randomToken('frpsToken')">随机</button>
+
+          <div class="grid-overview">
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-network"/></svg>网络环境</div>
+                <button class="btn btn-sm btn-ghost" id="btnDetectNet">
+                  <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-refresh"/></svg>重新探测
+                </button>
+              </div>
+              <div class="kv">
+                <div class="kv-row">
+                  <span>公网 IPv4</span>
+                  <span class="kv-value"><span class="mono" id="netV4">未探测</span><span class="tag" id="netV4Tag">-</span><button class="copy-btn" data-copy="netV4" aria-label="复制 IPv4"><svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-copy"/></svg></button></span>
+                </div>
+                <div class="kv-row">
+                  <span>公网 IPv6</span>
+                  <span class="kv-value"><span class="mono" id="netV6">未探测</span><span class="tag" id="netV6Tag">-</span><button class="copy-btn" data-copy="netV6" aria-label="复制 IPv6"><svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-copy"/></svg></button></span>
+                </div>
+                <div class="kv-row">
+                  <span>本机内网 IP</span>
+                  <span class="kv-value"><span class="mono" id="netLocal">-</span><button class="copy-btn" data-copy="netLocal" aria-label="复制内网 IP"><svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-copy"/></svg></button></span>
+                </div>
+                <div class="kv-row">
+                  <span>连接地址</span>
+                  <span class="kv-value"><span class="mono" id="netAccess">-</span></span>
+                </div>
+              </div>
+              <div class="field" style="margin-top:12px">
+                <label for="ipPrefSelect">网络偏好（影响监听与客户端连接地址）</label>
+                <select id="ipPrefSelect">
+                  <option value="4">仅 IPv4</option>
+                  <option value="6">仅 IPv6</option>
+                  <option value="both">均可（双栈，优先 IPv4）</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-rocket"/></svg>下一步</div>
+                <span class="badge badge-neutral" id="setupBadge">待初始化</span>
+              </div>
+              <div class="checklist" id="checklist"></div>
             </div>
           </div>
-          <div class="form-group">
-            <label>端口白名单策略 (allowPorts)</label>
-            <select id="frpsAllowMode" onchange="toggleAllowRangeInput()">
-              <option value="unlimited">不限制（推荐：本地新增穿透无需改 VPS）</option>
-              <option value="range">指定可用端口段（适合 NAT VPS 端口段）</option>
-              <option value="strict">严格模式（仅放行下方列表内的对外端口）</option>
+
+          <div class="card tight">
+            <div class="row" style="gap:8px">
+              <span class="card-title" style="margin-right:auto"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-activity"/></svg>快捷操作</span>
+              <button class="btn btn-sm" data-quick="frps">添加穿透服务</button>
+              <button class="btn btn-sm" data-quick="import">导入连接码</button>
+              <button class="btn btn-sm" data-quick="export">导出客户端配置</button>
+              <button class="btn btn-sm btn-ghost" data-quick="scan">扫描原服务</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== frps ==================== -->
+        <section class="section" id="view-frps">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">服务端核心参数</h2>
+                <p class="section-desc">控制端口供内网 frpc 连接使用；NAT VPS 请在服务商后台映射「控制端口 → 同端口」。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn" id="btnPreviewFrps">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-file"/></svg>预览 frps.toml
+                </button>
+                <button class="btn btn-ghost" id="btnOpenExport">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-download"/></svg>导出客户端配置
+                </button>
+                <button class="btn btn-primary" id="btnSaveFrps">保存参数</button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="frpsControlPort">控制端口 (bindPort)</label>
+                <input type="number" id="frpsControlPort" min="1" max="65535" placeholder="7000" />
+              </div>
+              <div class="field">
+                <label for="frpsToken">鉴权密钥 (auth.token)</label>
+                <div class="input-row">
+                  <input type="text" id="frpsToken" class="mono" autocomplete="off" />
+                  <button class="btn btn-sm btn-ghost" id="btnRandomToken" title="随机生成">随机</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="frpsAllowMode">端口白名单策略</label>
+                <select id="frpsAllowMode">
+                  <option value="unlimited">不限制（推荐）</option>
+                  <option value="range">指定端口段</option>
+                  <option value="strict">仅放行列表内端口</option>
+                </select>
+                <span class="hint" id="frpsAllowHint">本地新增穿透无需再改 VPS 配置。</span>
+              </div>
+              <div class="field">
+                <label for="frpsAllowRange">允许端口范围</label>
+                <input type="text" id="frpsAllowRange" class="mono" placeholder="30000-30100, 40000" />
+                <span class="hint">仅「指定端口段」模式生效，支持逗号分隔。</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card flush">
+            <div style="padding:16px 18px" class="section-head">
+              <div>
+                <h2 class="section-title">穿透服务列表</h2>
+                <p class="section-desc">这里登记的规则会编入导出配置；填写域名后会由 Caddy 自动接管 HTTPS。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-primary" id="btnAddFrpsService">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-plus"/></svg>添加穿透服务
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap" style="border:0;border-top:1px solid var(--border);border-radius:0">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">名称</th>
+                    <th scope="col">协议</th>
+                    <th scope="col">内网目标</th>
+                    <th scope="col">对外端口</th>
+                    <th scope="col">访问方式</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="frpsServicesBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== frpc ==================== -->
+        <section class="section" id="view-frpc">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">远程 VPS 连接</h2>
+                <p class="section-desc">粘贴 VPS 导出的连接码或 frpc.toml 即可完成对接，保存后自动热重载。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-primary" id="btnOpenImport">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-upload"/></svg>导入连接码
+                </button>
+                <button class="btn" id="btnPreviewFrpc">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-file"/></svg>预览 frpc.toml
+                </button>
+                <button class="btn btn-ghost" id="btnSaveFrpc">保存并热重载</button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="frpcServerAddr">远程 VPS 地址</label>
+                <input type="text" id="frpcServerAddr" class="mono" placeholder="108.165.122.146 或 frp.example.com" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="frpcServerPort">控制端口</label>
+                <input type="number" id="frpcServerPort" min="1" max="65535" placeholder="7000" />
+              </div>
+              <div class="field">
+                <label for="frpcToken">鉴权密钥</label>
+                <input type="text" id="frpcToken" class="mono" placeholder="与 VPS 端一致" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label>传输与热重载</label>
+                <label class="check"><input type="checkbox" id="frpcTLSEnable" />启用 TLS 加密传输</label>
+                <span class="hint">本机管理端口 <span class="mono" id="frpcAdminPortLabel">127.0.0.1:7400</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card flush">
+            <div style="padding:16px 18px" class="section-head">
+              <div>
+                <h2 class="section-title">本地穿透隧道</h2>
+                <p class="section-desc">支持本机 (127.0.0.1) 或局域网设备 (如 NAS 192.168.1.x)，保存即热重载不断连。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-primary" id="btnAddFrpcTunnel">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-plus"/></svg>添加隧道
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap" style="border:0;border-top:1px solid var(--border);border-radius:0">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">名称</th>
+                    <th scope="col">协议</th>
+                    <th scope="col">本地目标</th>
+                    <th scope="col">远端端口</th>
+                    <th scope="col">访问方式</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="frpcTunnelsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== caddy ==================== -->
+        <section class="section" id="view-caddy">
+          <div class="card flush">
+            <div style="padding:16px 18px" class="section-head">
+              <div>
+                <h2 class="section-title">反向代理规则</h2>
+                <p class="section-desc">支持公网域名自动 HTTPS、NAT 非标端口、局域网自签与 DNS API 泛域名证书。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn" id="btnProxySelf">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-link"/></svg>反代本面板
+                </button>
+                <button class="btn" id="btnPreviewCaddy">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-file"/></svg>预览 Caddyfile
+                </button>
+                <button class="btn btn-primary" id="btnAddCaddyRule">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-plus"/></svg>添加规则
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap" style="border:0;border-top:1px solid var(--border);border-radius:0">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">名称 / 来源</th>
+                    <th scope="col">前端入口</th>
+                    <th scope="col">后端目标</th>
+                    <th scope="col">证书模式</th>
+                    <th scope="col">特性</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="caddyRulesBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">全局设置与 DNS 证书</h2>
+                <p class="section-desc">配置 DNS API 后，无 80/443 端口或纯内网环境也能申请受信任证书与泛域名证书。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn" id="btnInstallCaddyDNS">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-download"/></svg>安装带 DNS 插件的 Caddy
+                </button>
+                <button class="btn btn-primary" id="btnSaveCaddy">保存设置</button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="caddyHTTPPort">HTTP 端口</label>
+                <input type="number" id="caddyHTTPPort" min="1" max="65535" placeholder="80" />
+              </div>
+              <div class="field">
+                <label for="caddyHTTPSPort">HTTPS 端口</label>
+                <input type="number" id="caddyHTTPSPort" min="1" max="65535" placeholder="443" />
+              </div>
+              <div class="field">
+                <label for="caddyEmail">ACME 证书邮箱</label>
+                <input type="text" id="caddyEmail" placeholder="admin@example.com" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="caddyDNSProvider">DNS 服务商</label>
+                <select id="caddyDNSProvider">
+                  <option value="">不使用 DNS API</option>
+                  <option value="cloudflare">Cloudflare</option>
+                  <option value="alidns">阿里云 AliDNS</option>
+                  <option value="dnspod">腾讯云 DNSPod</option>
+                  <option value="duckdns">DuckDNS</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="caddyDNSToken">API Token / AccessKeyId</label>
+                <input type="password" id="caddyDNSToken" class="mono" placeholder="填入 API 凭据" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label for="caddyDNSSecret">API Secret</label>
+                <input type="password" id="caddyDNSSecret" class="mono" placeholder="阿里云等双密钥服务商填写" autocomplete="new-password" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== scanner ==================== -->
+        <section class="section" id="view-scanner">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">原服务器进程探测</h2>
+                <p class="section-desc">自动识别 NPM / Nginx / 原版 Caddy / 原版 frp（含 Docker），可在线编辑原配置或一键吞并迁移证书与规则。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn" id="btnRescan">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-refresh"/></svg>重新扫描
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">服务 / 类型</th>
+                    <th scope="col">运行状态</th>
+                    <th scope="col">监听端口</th>
+                    <th scope="col">主配置</th>
+                    <th scope="col">说明</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="detectedAppsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" id="legacyCard">
+            <div class="card-head">
+              <div class="card-title"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-box"/></svg>旧版本配置继承</div>
+              <span class="badge badge-neutral" id="legacyBadge">未检测到</span>
+            </div>
+            <div id="legacyBody" class="muted" style="font-size:13px">未发现 v1.x 的 state.conf / services.conf。</div>
+          </div>
+        </section>
+
+        <!-- ==================== system ==================== -->
+        <section class="section" id="view-system">
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">服务日志</h2>
+                <p class="section-desc">排查连接失败、端口冲突或证书申请问题。</p>
+              </div>
+              <div class="section-actions">
+                <label class="check" style="align-items:center;font-size:12.5px">
+                  <input type="checkbox" id="logAutoRefresh" />自动刷新
+                </label>
+                <button class="btn" id="btnLoadLogs">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-refresh"/></svg>刷新
+                </button>
+              </div>
+            </div>
+            <div class="log-toolbar">
+              <div class="segmented" role="group" aria-label="日志来源">
+                <button data-log="frps" aria-pressed="true">frps</button>
+                <button data-log="frpc" aria-pressed="false">frpc</button>
+                <button data-log="caddy" aria-pressed="false">caddy</button>
+                <button data-log="autof" aria-pressed="false">autof</button>
+              </div>
+              <select id="logLines" style="width:auto" aria-label="日志行数">
+                <option value="120">最近 120 行</option>
+                <option value="300">最近 300 行</option>
+                <option value="600">最近 600 行</option>
+              </select>
+            </div>
+            <pre class="log-view" id="logView" tabindex="0">选择日志来源后点击刷新。</pre>
+          </div>
+
+          <div class="grid-2">
+            <div class="card">
+              <div class="section-head">
+                <div>
+                  <h2 class="section-title">面板与安全</h2>
+                  <p class="section-desc">修改监听地址或登录凭据，监听地址变更后需重启 autof 服务。</p>
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top:12px">
+                <div class="field">
+                  <label for="webListenAddr">监听地址</label>
+                  <input type="text" id="webListenAddr" class="mono" placeholder="0.0.0.0:7500" />
+                </div>
+                <div class="field">
+                  <label for="webUsername">登录用户名</label>
+                  <input type="text" id="webUsername" placeholder="admin" autocomplete="username" />
+                </div>
+                <div class="field">
+                  <label for="webPassword">新密码</label>
+                  <div class="input-row">
+                    <input type="password" id="webPassword" placeholder="留空则不修改" autocomplete="new-password" />
+                    <button class="btn btn-sm btn-ghost" id="btnRandomPwd" title="随机生成">随机</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>访问控制</label>
+                  <label class="check"><input type="checkbox" id="webAuthEnabled" />启用密码保护</label>
+                </div>
+              </div>
+              <div class="row" style="margin-top:14px">
+                <button class="btn btn-primary" id="btnSaveWeb">保存面板设置</button>
+                <button class="btn btn-ghost" id="btnReloadWeb">重启面板服务</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-info"/></svg>运行信息</div>
+              </div>
+              <div class="kv" id="sysInfoKv"></div>
+              <div class="row" style="margin-top:14px">
+                <button class="btn btn-ghost" id="btnOpenWizard">重新运行初始化向导</button>
+                <a class="btn btn-ghost" href="https://github.com/WuCaiCaiCai/Autofrp" target="_blank" rel="noreferrer">
+                  文档
+                  <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-external"/></svg>
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ==================== Modal: 初始化向导 ==================== -->
+  <div class="modal-backdrop" id="wizardModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="wizardTitle">初始化 Autofrp</div>
+          <div class="modal-sub">三步完成角色、网络与组件设置</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="wizardModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="steps" aria-hidden="true">
+          <div class="step active" data-step="1"><span class="step-num">1</span>角色</div>
+          <div class="step-line"></div>
+          <div class="step" data-step="2"><span class="step-num">2</span>网络</div>
+          <div class="step-line"></div>
+          <div class="step" data-step="3"><span class="step-num">3</span>完成</div>
+        </div>
+
+        <!-- step 1 -->
+        <div data-panel="1" class="stack">
+          <p class="muted" style="font-size:13px">这台机器在穿透链路里扮演什么角色？稍后仍可随时切换。</p>
+          <div class="choice-grid">
+            <label class="choice">
+              <input type="radio" name="wizRole" value="vps" />
+              <span>
+                <span class="choice-title">远程 VPS（公网入口）</span>
+                <span class="choice-desc">部署 frps + Caddy，把内网服务以域名 HTTPS 暴露到公网。</span>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="wizRole" value="local" />
+              <span>
+                <span class="choice-title">本地服务器 / NAS（内网服务）</span>
+                <span class="choice-desc">运行 frpc + Caddy，一条连接码接入远程 VPS。</span>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="wizRole" value="both" checked />
+              <span>
+                <span class="choice-title">两者都要（单机全功能）</span>
+                <span class="choice-desc">同时管理 frps 与 frpc，适合有公网 IP 的一体机。</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- step 2 -->
+        <div data-panel="2" class="stack" hidden>
+          <div class="field">
+            <label for="wizIpPref">网络偏好</label>
+            <select id="wizIpPref">
+              <option value="4">仅 IPv4（推荐）</option>
+              <option value="6">仅 IPv6</option>
+              <option value="both">均可（双栈）</option>
             </select>
           </div>
-          <div class="form-group" id="frpsAllowRangeWrap">
-            <label>允许端口范围（如 30000-30050, 40000）</label>
-            <input type="text" id="frpsAllowRange" placeholder="30000-30100" />
+          <div id="wizVpsFields" class="form-grid">
+            <div class="field">
+              <label for="wizControlPort">frps 控制端口</label>
+              <input type="number" id="wizControlPort" min="1" max="65535" value="7000" />
+            </div>
+            <div class="field">
+              <label for="wizToken">鉴权 Token</label>
+              <div class="input-row">
+                <input type="text" id="wizToken" class="mono" autocomplete="off" />
+                <button class="btn btn-sm btn-ghost" id="btnWizToken">随机</button>
+              </div>
+            </div>
           </div>
+          <div id="wizLocalFields" class="form-grid" hidden>
+            <div class="field">
+              <label for="wizFrpcAddr">远程 VPS 地址</label>
+              <input type="text" id="wizFrpcAddr" class="mono" placeholder="可稍后导入连接码" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="wizFrpcPort">远程控制端口</label>
+              <input type="number" id="wizFrpcPort" min="1" max="65535" value="7000" />
+            </div>
+          </div>
+          <p class="hint">网络探测已在后台进行，完成后可在总览查看公网地址。</p>
+        </div>
+
+        <!-- step 3 -->
+        <div data-panel="3" class="stack" hidden>
+          <div class="banner banner-info">
+            <svg class="i" width="17" height="17" aria-hidden="true"><use href="#i-check"/></svg>
+            <div>配置即将写入 <span class="mono">/etc/autof/config.json</span>，旧版本数据会自动迁移保留。</div>
+          </div>
+          <div class="field">
+            <label>初始化后立即启动</label>
+            <label class="check"><input type="checkbox" id="wizStartFrps" checked />frps 服务端</label>
+            <label class="check"><input type="checkbox" id="wizStartCaddy" checked />Caddy 反向代理</label>
+            <label class="check"><input type="checkbox" id="wizStartFrpc" />frpc 客户端（需已填远程地址）</label>
+          </div>
+          <div class="progress-list" id="wizProgress" hidden></div>
         </div>
       </div>
-
-      <div class="card">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">穿透服务列表（支持一键绑定 Caddy 域名反代）</h3>
-            <p class="sub-hint">在此添加的规则会自动编入导出的客户端配置/连接码；若绑定域名，将自动在 Caddy 中创建 HTTPS 反代</p>
-          </div>
-          <button class="btn btn-primary" onclick="openTunnelModal('frps', null)">+ 添加穿透服务</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>类型</th>
-                <th>内网目标 (localIP:Port)</th>
-                <th>对外端口 (remotePort)</th>
-                <th>公网访问 / Caddy 联动反代</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="frpsServicesBody"></tbody>
-          </table>
-        </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="wizPrev" hidden>上一步</button>
+        <button class="btn btn-ghost" data-close="wizardModal" id="wizSkip">稍后设置</button>
+        <button class="btn btn-primary" id="wizNext">下一步</button>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <!-- ==================== Tab 2: 穿透客户端 (frpc) ==================== -->
-    <section id="tabPanelFrpc" class="tab-panel hidden">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">远程 VPS 连接参数 (frpc 客户端)</h3>
-            <p class="sub-hint">可直接粘贴从远程 VPS 复制的「autof:// 连接码」或「frpc.toml」一键填充</p>
-          </div>
-          <div class="btn-group">
-            <button class="btn btn-success" onclick="openImportModal()">📥 一键导入连接码 / frpc.toml</button>
-            <button class="btn" onclick="openPreviewModal('frpcClient')">预览本机 frpc.toml</button>
-            <button class="btn btn-primary" onclick="saveFrpcSettings()">保存并热重载 frpc</button>
-          </div>
+  <!-- ==================== Modal: 穿透规则 ==================== -->
+  <div class="modal-backdrop" id="tunnelModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="tunnelTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="tunnelTitle">添加穿透规则</div>
+          <div class="modal-sub" id="tunnelSub">填写内网服务地址与对外端口</div>
         </div>
+        <button class="btn btn-ghost btn-icon close" data-close="tunnelModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <div class="hint" style="margin-bottom:7px">快捷预设</div>
+          <div class="row" id="presetChips" style="gap:6px"></div>
+        </div>
+        <input type="hidden" id="tunScope" value="frps" />
+        <input type="hidden" id="tunID" value="" />
         <div class="form-grid">
-          <div class="form-group">
-            <label>远程 VPS 地址 (serverAddr)</label>
-            <input type="text" id="frpcServerAddr" placeholder="如 108.165.122.146 或 frp.example.com" />
+          <div class="field">
+            <label for="tunName">名称</label>
+            <input type="text" id="tunName" placeholder="mc-java" />
           </div>
-          <div class="form-group">
-            <label>远程控制端口 (serverPort)</label>
-            <input type="number" id="frpcServerPort" min="1" max="65535" placeholder="7000" />
+          <div class="field">
+            <label for="tunType">协议</label>
+            <select id="tunType"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
           </div>
-          <div class="form-group">
-            <label>鉴权密钥 (auth.token)</label>
-            <input type="text" id="frpcToken" class="mono" placeholder="与 VPS 端 frps 保持一致" />
+          <div class="field">
+            <label for="tunLocalIP">内网目标 IP</label>
+            <input type="text" id="tunLocalIP" class="mono" value="127.0.0.1" placeholder="127.0.0.1 / 192.168.1.50" />
           </div>
-          <div class="form-group">
-            <label>传输加密与热重载端口</label>
-            <div style="display:flex;align-items:center;gap:14px;padding-top:6px;">
-              <label class="checkbox-row" style="margin:0;">
-                <input type="checkbox" id="frpcTLSEnable" checked /> 启用 TLS 加密
-              </label>
-              <span class="sub-hint">管理端口: <span id="frpcAdminPortLabel" class="mono">127.0.0.1:7400</span></span>
+          <div class="field">
+            <label for="tunLocalPort">内网端口</label>
+            <input type="number" id="tunLocalPort" min="1" max="65535" placeholder="25565" />
+          </div>
+          <div class="field">
+            <label for="tunRemotePort">对外端口</label>
+            <input type="number" id="tunRemotePort" min="1" max="65535" placeholder="默认同内网端口" />
+          </div>
+          <div class="field">
+            <label for="tunRemark">备注</label>
+            <input type="text" id="tunRemark" placeholder="可选" />
+          </div>
+        </div>
+
+        <div class="card tight" style="background:rgba(56,189,248,0.05);border-color:rgba(56,189,248,0.22)">
+          <label class="check" style="font-weight:600">
+            <input type="checkbox" id="tunEnableCaddy" />
+            联动 Caddy 域名反代（可选）
+          </label>
+          <div class="form-grid" id="tunCaddyFields" style="margin-top:10px" hidden>
+            <div class="field">
+              <label for="tunCaddyDomain">绑定域名 / 入口</label>
+              <input type="text" id="tunCaddyDomain" class="mono" placeholder="app.example.com 或 app.example.com:8443" />
+            </div>
+            <div class="field">
+              <label for="tunCaddyTLSMode">证书策略</label>
+              <select id="tunCaddyTLSMode">
+                <option value="auto">自动公网证书</option>
+                <option value="dns">DNS API 证书</option>
+                <option value="internal">内网自签 (tls internal)</option>
+                <option value="http">纯 HTTP</option>
+              </select>
             </div>
           </div>
         </div>
+
+        <label class="check"><input type="checkbox" id="tunEnabled" checked />启用该规则</label>
       </div>
-
-      <div class="card">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">本机 / 局域网穿透隧道列表</h3>
-            <p class="sub-hint">把本机 (127.0.0.1) 或局域网其他设备 (如 NAS 192.168.1.x) 暴露到远程 VPS，保存后自动热重载不断连</p>
-          </div>
-          <button class="btn btn-primary" onclick="openTunnelModal('frpc', null)">+ 添加本地穿透隧道</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>类型</th>
-                <th>本地/局域网目标 (localIP:Port)</th>
-                <th>VPS 远端端口 (remotePort)</th>
-                <th>外部连接地址</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="frpcTunnelsBody"></tbody>
-          </table>
-        </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="tunnelModal">取消</button>
+        <button class="btn btn-primary" id="btnSubmitTunnel">保存并应用</button>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <!-- ==================== Tab 3: Caddy 快速反代 ==================== -->
-    <section id="tabPanelCaddy" class="tab-panel hidden">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">Caddy 反向代理规则（远程 VPS 与本地服务器通用）</h3>
-            <p class="sub-hint">支持公网域名自动 HTTPS、穿透端口直接绑域名、局域网无域名/内网自签证书、以及 Cloudflare 等 DNS API 泛域名证书</p>
-          </div>
-          <div class="btn-group">
-            <button class="btn" onclick="quickProxySelfWebUI()">⚡ 一键反代本面板</button>
-            <button class="btn" onclick="openPreviewModal('caddy')">预览 Caddyfile</button>
-            <button class="btn btn-primary" onclick="openCaddyRuleModal(null)">+ 添加反代规则</button>
-          </div>
+  <!-- ==================== Modal: Caddy 规则 ==================== -->
+  <div class="modal-backdrop" id="caddyModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="caddyTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="caddyTitle">添加反代规则</div>
+          <div class="modal-sub">填写前端入口与后端目标，保存前会自动校验语法</div>
         </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>名称 / 来源</th>
-                <th>前端监听入口 (域名 / 端口)</th>
-                <th>后端目标地址 (Upstream)</th>
-                <th>证书与协议模式</th>
-                <th>附加特性</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="caddyRulesBody"></tbody>
-          </table>
-        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="caddyModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-
-      <!-- Caddy 全局与 DNS API 证书设置 -->
-      <div class="card">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">Caddy 全局配置 &amp; DNS API 证书申请（可选）</h3>
-            <p class="sub-hint">配置 DNS API 后，即使在无 80/443 端口的 NAT VPS 或纯内网本地服务器上，也能申请真实受信任证书及泛域名证书 (*.example.com)</p>
-          </div>
-          <div class="btn-group">
-            <button class="btn" onclick="installCaddyWithDNS()">安装/重装带 DNS 插件的 Caddy</button>
-            <button class="btn btn-primary" onclick="saveCaddySettings()">保存 Caddy 全局设置</button>
-          </div>
+      <div class="modal-body">
+        <input type="hidden" id="caddyRuleID" value="" />
+        <div class="field">
+          <label for="caddyQuickTunnel">从已有穿透服务填充</label>
+          <select id="caddyQuickTunnel"></select>
         </div>
         <div class="form-grid">
-          <div class="form-group">
-            <label>默认 HTTP 端口</label>
-            <input type="number" id="caddyHTTPPort" min="1" max="65535" placeholder="80" />
+          <div class="field">
+            <label for="caddyRuleName">规则名称</label>
+            <input type="text" id="caddyRuleName" placeholder="飞牛 NAS / 博客" />
           </div>
-          <div class="form-group">
-            <label>默认 HTTPS 端口</label>
-            <input type="number" id="caddyHTTPSPort" min="1" max="65535" placeholder="443" />
-          </div>
-          <div class="form-group">
-            <label>ACME 证书邮箱（可选）</label>
-            <input type="text" id="caddyEmail" placeholder="admin@example.com" />
-          </div>
-          <div class="form-group">
-            <label>DNS 证书服务商 (DNS-01 验证)</label>
-            <select id="caddyDNSProvider">
-              <option value="">不使用 DNS API（默认 HTTP/ALPN 验证）</option>
-              <option value="cloudflare">Cloudflare</option>
-              <option value="alidns">阿里云 DNS (AliDNS)</option>
-              <option value="dnspod">腾讯云 DNSPod</option>
-              <option value="duckdns">DuckDNS</option>
+          <div class="field">
+            <label for="caddyRuleTLSMode">证书与协议</label>
+            <select id="caddyRuleTLSMode">
+              <option value="auto">自动公网 HTTPS</option>
+              <option value="dns">DNS API 证书</option>
+              <option value="custom">使用自定义证书文件</option>
+              <option value="internal">局域网自签 (tls internal)</option>
+              <option value="http">纯 HTTP</option>
             </select>
           </div>
-          <div class="form-group">
-            <label>DNS API Token / AccessKeyId</label>
-            <input type="password" id="caddyDNSToken" class="mono" placeholder="填入 API Token" />
+          <div class="field">
+            <label for="caddyRuleListen">前端监听入口</label>
+            <input type="text" id="caddyRuleListen" class="mono" placeholder="app.example.com / :8080 / 192.168.1.10:9443" />
+            <span class="hint">支持域名、域名:端口、纯端口、局域网 IP:端口。</span>
           </div>
-          <div class="form-group">
-            <label>DNS Secret（仅阿里云等双密钥服务商需填）</label>
-            <input type="password" id="caddyDNSSecret" class="mono" placeholder="留空（Cloudflare 无需填写）" />
+          <div class="field">
+            <label for="caddyRuleUpstream">后端目标</label>
+            <input type="text" id="caddyRuleUpstream" class="mono" placeholder="127.0.0.1:8080 / 192.168.1.50:5000" />
+            <span class="hint">自动转发 WebSocket。</span>
           </div>
+        </div>
+
+        <div class="form-grid" id="caddyCertFields" hidden>
+          <div class="field">
+            <label for="caddyRuleCertFile">证书链路径</label>
+            <input type="text" id="caddyRuleCertFile" class="mono" placeholder="/etc/autof/certs/example.com/fullchain.pem" />
+          </div>
+          <div class="field">
+            <label for="caddyRuleKeyFile">私钥路径</label>
+            <input type="text" id="caddyRuleKeyFile" class="mono" placeholder="/etc/autof/certs/example.com/privkey.pem" />
+          </div>
+        </div>
+
+        <div class="row" style="gap:18px">
+          <label class="check"><input type="checkbox" id="caddyRuleEncode" checked />Zstd / Gzip 压缩</label>
+          <label class="check"><input type="checkbox" id="caddyRuleSkipVerify" />跳过后端证书校验</label>
+          <label class="check"><input type="checkbox" id="caddyRuleEnabled" checked />启用</label>
+        </div>
+
+        <div class="field">
+          <label for="caddyRuleExtra">附加指令（可选，每行一条）</label>
+          <textarea id="caddyRuleExtra" rows="2" placeholder="request_body { max_size 500MB }"></textarea>
         </div>
       </div>
-    </section>
-
-    <!-- ==================== Tab 4: 原服务探测与吞并迁移 ==================== -->
-    <section id="tabPanelScanner" class="tab-panel hidden">
-      <div class="card">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">原服务器进程探测、在线编辑与一键吞并迁移</h3>
-            <p class="sub-hint">
-              自动识别宿主机或 Docker 中运行的 <strong>Nginx Proxy Manager (NPM)</strong>、<strong>Nginx</strong>、<strong>原版 Caddy</strong>、<strong>原版 frps/frpc</strong>，支持直接在线修改原配置，或一键提取反代规则与 SSL 证书迁移到 <span class="mono">/etc/autof/</span> 并清理老服务
-            </p>
-          </div>
-          <button class="btn" onclick="loadOverview()">🔄 重新扫描服务器进程</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>服务名称 / 类型</th>
-                <th>运行状态 &amp; 进程/容器</th>
-                <th>监听端口</th>
-                <th>识别到的主配置文件</th>
-                <th>说明</th>
-                <th>操作（编辑 / 吞并迁移）</th>
-              </tr>
-            </thead>
-            <tbody id="detectedAppsBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== Tab 5: 日志与系统设置 ==================== -->
-    <section id="tabPanelSystem" class="tab-panel hidden">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">服务运行日志实时查看</h3>
-            <p class="sub-hint">排查连接失败、端口冲突或证书申请进度</p>
-          </div>
-          <div class="btn-group">
-            <button class="btn btn-sm" onclick="loadServiceLogs('frps')">frps 日志</button>
-            <button class="btn btn-sm" onclick="loadServiceLogs('frpc')">frpc 日志</button>
-            <button class="btn btn-sm" onclick="loadServiceLogs('caddy')">Caddy 日志</button>
-            <button class="btn btn-sm" onclick="loadServiceLogs('autof')">面板日志</button>
-          </div>
-        </div>
-        <pre id="serviceLogBox" class="code-box">点击上方按钮加载对应服务日志...</pre>
-      </div>
-
-      <div class="card">
-        <div class="section-bar">
-          <div>
-            <h3 style="font-size:15px;">WebUI 面板与安全设置</h3>
-            <p class="sub-hint">修改面板监听地址与登录凭据（修改监听端口后需重启 autof 服务生效）</p>
-          </div>
-          <button class="btn btn-primary" onclick="saveWebSettings()">保存面板设置</button>
-        </div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>面板监听地址 (listenAddr)</label>
-            <input type="text" id="webListenAddr" class="mono" placeholder="0.0.0.0:7500" />
-          </div>
-          <div class="form-group">
-            <label>登录用户名</label>
-            <input type="text" id="webUsername" placeholder="admin" />
-          </div>
-          <div class="form-group">
-            <label>登录密码（留空保持原密码）</label>
-            <input type="password" id="webPassword" placeholder="输入新密码" />
-          </div>
-          <div class="form-group">
-            <label>访问鉴权</label>
-            <div style="padding-top:6px;">
-              <label class="checkbox-row" style="margin:0;">
-                <input type="checkbox" id="webAuthEnabled" /> 启用 WebUI 密码保护
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <!-- ==================== 弹窗 1: 添加/编辑穿透服务 ==================== -->
-  <div id="tunnelModal" class="modal-backdrop hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title" id="tunnelModalTitle">添加穿透服务</span>
-        <button class="btn btn-sm" onclick="closeModal('tunnelModal')">✕</button>
-      </div>
-
-      <div class="sub-hint" style="margin-bottom:6px;">快捷预设（点击一键填充端口与类型）：</div>
-      <div id="presetChips" class="preset-bar"></div>
-
-      <input type="hidden" id="tunTargetScope" value="frps" />
-      <input type="hidden" id="tunID" value="" />
-
-      <div class="form-grid">
-        <div class="form-group">
-          <label>服务名称 (name)</label>
-          <input type="text" id="tunName" placeholder="如 mc-java, web-nas" />
-        </div>
-        <div class="form-group">
-          <label>协议类型 (type)</label>
-          <select id="tunType">
-            <option value="tcp">TCP</option>
-            <option value="udp">UDP</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>内网目标 IP (localIP)</label>
-          <input type="text" id="tunLocalIP" class="mono" placeholder="127.0.0.1 或局域网 192.168.x.x" value="127.0.0.1" />
-        </div>
-        <div class="form-group">
-          <label>内网服务端口 (localPort)</label>
-          <input type="number" id="tunLocalPort" min="1" max="65535" placeholder="如 25565 / 8080" oninput="syncDefaultRemotePort()" />
-        </div>
-        <div class="form-group">
-          <label>对外/远端端口 (remotePort)</label>
-          <input type="number" id="tunRemotePort" min="1" max="65535" placeholder="默认同内网端口" />
-        </div>
-        <div class="form-group">
-          <label>备注说明</label>
-          <input type="text" id="tunRemark" placeholder="可选备注" />
-        </div>
-      </div>
-
-      <!-- 联动 Caddy 域名反代 -->
-      <div class="linked-box">
-        <div style="font-weight:600;font-size:13.5px;margin-bottom:6px;color:var(--primary);">
-          ⚡ 联动 Caddy 域名反代（可选，一条龙配置 HTTPS）
-        </div>
-        <p class="sub-hint" style="margin-bottom:10px;">
-          填写域名后，Caddy 将自动把该域名反代到穿透端口 <span class="mono">127.0.0.1:remotePort</span> 并自动管理证书
-        </p>
-        <div class="form-grid">
-          <div class="form-group" style="margin-bottom:0;">
-            <label>绑定反代域名或入口（留空则不联动）</label>
-            <input type="text" id="tunCaddyDomain" placeholder="如 app.example.com 或 app.example.com:8443" />
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label>证书策略</label>
-            <select id="tunCaddyTLSMode">
-              <option value="auto">自动公网证书 (HTTP/ALPN)</option>
-              <option value="dns">DNS API 证书 (泛域名/无80端口)</option>
-              <option value="internal">内网自签证书 (tls internal)</option>
-              <option value="http">纯 HTTP (不启用 SSL)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <label class="checkbox-row" style="margin-top:12px;">
-        <input type="checkbox" id="tunEnabled" checked /> 启用该穿透规则
-      </label>
-
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('tunnelModal')">取消</button>
-        <button class="btn btn-primary" onclick="submitTunnelForm()">保存并应用</button>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="caddyModal">取消</button>
+        <button class="btn btn-primary" id="btnSubmitCaddy">校验并保存</button>
       </div>
     </div>
   </div>
 
-  <!-- ==================== 弹窗 2: 添加/编辑 Caddy 反代规则 ==================== -->
-  <div id="caddyModal" class="modal-backdrop hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title" id="caddyModalTitle">添加 Caddy 反代规则</span>
-        <button class="btn btn-sm" onclick="closeModal('caddyModal')">✕</button>
+  <!-- ==================== Modal: 导出 ==================== -->
+  <div class="modal-backdrop" id="exportModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="exportTitle">导出客户端配置</div>
+          <div class="modal-sub">在本地服务器粘贴连接码或使用 frpc.toml</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="exportModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-
-      <input type="hidden" id="caddyRuleID" value="" />
-
-      <div class="form-group">
-        <label>快捷选择后端目标（可从已有穿透服务自动填入，或手动填写）</label>
-        <select id="caddyQuickTunnelSelect" onchange="applyQuickTunnelToCaddy(this.value)">
-          <option value="">-- 手动输入本机或局域网目标地址 --</option>
-        </select>
-      </div>
-
-      <div class="form-grid">
-        <div class="form-group">
-          <label>规则名称</label>
-          <input type="text" id="caddyRuleName" placeholder="如 飞牛NAS / 博客 / 本地容器" />
+      <div class="modal-body">
+        <div class="field">
+          <label for="exportCode">一键连接码（推荐）</label>
+          <div class="input-row">
+            <input type="text" id="exportCode" class="mono" readonly />
+            <button class="btn btn-primary" data-copy-input="exportCode">
+              <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-copy"/></svg>复制
+            </button>
+          </div>
+          <span class="hint">在本地服务器 WebUI「导入连接码」中粘贴即可。</span>
         </div>
-        <div class="form-group">
-          <label>证书与协议模式</label>
-          <select id="caddyRuleTLSMode" onchange="toggleCustomCertInputs()">
-            <option value="auto">🔒 自动公网 HTTPS (默认 80/443 或域名:端口)</option>
-            <option value="dns">☁️ DNS API 证书 (支持泛域名 / 无 80 端口)</option>
-            <option value="custom">📁 使用已迁移/自定义证书文件 (Cert + Key)</option>
-            <option value="internal">🏠 局域网自签 HTTPS (tls internal，支持内网 IP)</option>
-            <option value="http">🌐 纯 HTTP 端口反代 (无证书，适合局域网明文)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>前端监听地址 (Listen)</label>
-          <input type="text" id="caddyRuleListen" class="mono" placeholder="如 app.example.com、app.example.com:8443 或 :8080" />
-          <span class="sub-hint">支持：域名、域名:非标端口、纯端口 (:8080)、局域网IP:端口</span>
-        </div>
-        <div class="form-group">
-          <label>后端目标地址 (Upstream)</label>
-          <input type="text" id="caddyRuleUpstream" class="mono" placeholder="如 127.0.0.1:8080 或 192.168.1.50:5000" />
-          <span class="sub-hint">自动支持 WebSocket 转发</span>
+        <div class="field">
+          <div class="row-between">
+            <label for="exportToml">标准 frpc.toml</label>
+            <button class="btn btn-sm btn-ghost" data-copy-code="exportToml">复制全文</button>
+          </div>
+          <pre class="code tall" id="exportToml"></pre>
         </div>
       </div>
-
-      <div id="caddyCustomCertBox" class="form-grid hidden" style="margin-bottom:8px;">
-        <div class="form-group">
-          <label>公钥证书路径 (fullchain.pem / .crt)</label>
-          <input type="text" id="caddyRuleCertFile" class="mono" placeholder="/etc/autof/certs/example.com/fullchain.pem" />
-        </div>
-        <div class="form-group">
-          <label>私钥路径 (privkey.pem / .key)</label>
-          <input type="text" id="caddyRuleKeyFile" class="mono" placeholder="/etc/autof/certs/example.com/privkey.pem" />
-        </div>
-      </div>
-
-      <div style="display:flex;flex-wrap:wrap;gap:18px;margin:6px 0 12px;">
-        <label class="checkbox-row">
-          <input type="checkbox" id="caddyRuleEncode" checked /> 开启 Zstd / Gzip 压缩
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="caddyRuleSkipVerify" /> 后端为 HTTPS 且跳过自签证书校验 (tls_insecure_skip_verify)
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="caddyRuleEnabled" checked /> 启用该规则
-        </label>
-      </div>
-
-      <div class="form-group">
-        <label>自定义附加 Caddyfile 指令（可选，每行一条）</label>
-        <textarea id="caddyRuleExtra" rows="2" placeholder="如: request_body { max_size 500MB }"></textarea>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('caddyModal')">取消</button>
-        <button class="btn btn-primary" onclick="submitCaddyRuleForm()">校验并热重载</button>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="exportModal">关闭</button>
       </div>
     </div>
   </div>
 
-  <!-- ==================== 弹窗 3: VPS 端导出连接码 / frpc.toml ==================== -->
-  <div id="exportModal" class="modal-backdrop hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title">导出客户端配置（供本地服务器使用）</span>
-        <button class="btn btn-sm" onclick="closeModal('exportModal')">✕</button>
+  <!-- ==================== Modal: 导入 ==================== -->
+  <div class="modal-backdrop" id="importModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="importTitle">导入连接码 / frpc.toml</div>
+          <div class="modal-sub">先解析预览，确认后再写入本机配置</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="importModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-
-      <div class="form-group">
-        <label>方式一：Autofrp 一键连接码（推荐，在本地服务器 WebUI 点击「一键导入」粘贴即可）</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="exportConnCodeInput" class="mono" readonly />
-          <button class="btn btn-primary" onclick="copyTextById('exportConnCodeInput')">复制连接码</button>
+      <div class="modal-body">
+        <div class="field">
+          <label for="importInput">粘贴 <span class="mono">autof://...</span> 连接码或 frpc.toml 内容</label>
+          <textarea id="importInput" rows="7" placeholder="autof://eyJzZXJ2ZXJBZGRy..."></textarea>
+        </div>
+        <div class="row">
+          <button class="btn" id="btnParseImport">
+            <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-search"/></svg>解析预览
+          </button>
+          <label class="check"><input type="checkbox" id="importMerge" />保留现有隧道并追加</label>
+        </div>
+        <div id="importPreview" hidden>
+          <div class="banner banner-ok">
+            <svg class="i" width="17" height="17" aria-hidden="true"><use href="#i-check"/></svg>
+            <div id="importSummary" style="font-size:13px"></div>
+          </div>
+          <pre class="code" id="importTunnels" style="margin-top:10px"></pre>
         </div>
       </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="importModal">取消</button>
+        <button class="btn btn-primary" id="btnApplyImport" disabled>确认导入</button>
+      </div>
+    </div>
+  </div>
 
-      <div class="form-group" style="margin-top:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <label>方式二：标准 frpc.toml 配置文件（可直接用于原版 frpc -c frpc.toml 或导入本地端）</label>
-          <button class="btn btn-sm btn-primary" onclick="copyTextById('exportFrpcTomlBox', true)">复制 frpc.toml</button>
+  <!-- ==================== Modal: 预览配置 ==================== -->
+  <div class="modal-backdrop" id="previewModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="previewTitle">配置预览</div>
+          <div class="modal-sub" id="previewSub"></div>
         </div>
-        <pre id="exportFrpcTomlBox" class="code-box"></pre>
+        <button class="btn btn-ghost btn-icon close" data-close="previewModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('exportModal')">关闭</button>
+      <div class="modal-body">
+        <pre class="code tall" id="previewCode"></pre>
       </div>
-    </div>
-  </div>
-
-  <!-- ==================== 弹窗 4: 本地端导入连接码 / frpc.toml ==================== -->
-  <div id="importModal" class="modal-backdrop hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title">一键导入远程 VPS 连接码或 frpc.toml</span>
-        <button class="btn btn-sm" onclick="closeModal('importModal')">✕</button>
-      </div>
-
-      <div class="form-group">
-        <label>请粘贴 `autof://...` 连接码 或 完整的 `frpc.toml` 配置内容：</label>
-        <textarea id="importRawInput" rows="8" placeholder="在此粘贴 autof://... 连接码，或者粘贴 frpc.toml 内容..."></textarea>
-      </div>
-
-      <label class="checkbox-row">
-        <input type="checkbox" id="importMergeTunnels" /> 保留本机现有隧道并追加导入（不勾选则替换为导入的隧道列表）
-      </label>
-
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('importModal')">取消</button>
-        <button class="btn btn-primary" onclick="submitImportConfig()">解析并应用配置</button>
+      <div class="modal-foot">
+        <button class="btn" data-copy-code="previewCode">
+          <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-copy"/></svg>复制
+        </button>
+        <button class="btn btn-ghost" data-close="previewModal">关闭</button>
       </div>
     </div>
   </div>
 
-  <!-- ==================== 弹窗 5: 配置文件预览 ==================== -->
-  <div id="previewModal" class="modal-backdrop hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title" id="previewModalTitle">配置文件预览</span>
-        <button class="btn btn-sm" onclick="closeModal('previewModal')">✕</button>
-      </div>
-      <pre id="previewCodeBox" class="code-box"></pre>
-      <div class="modal-footer">
-        <button class="btn btn-primary" onclick="copyTextById('previewCodeBox', true)">复制内容</button>
-        <button class="btn" onclick="closeModal('previewModal')">关闭</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== 弹窗 6: 原配置文件在线编辑器 ==================== -->
-  <div id="extEditorModal" class="modal-backdrop hidden">
-    <div class="modal" style="max-width:780px;">
-      <div class="modal-header">
-        <span class="modal-title" id="extEditorTitle">在线编辑原服务配置文件</span>
-        <button class="btn btn-sm" onclick="closeModal('extEditorModal')">✕</button>
-      </div>
-      <input type="hidden" id="extEditorAppID" value="" />
-      <div class="form-group">
-        <label>选择要查看 / 编辑的配置文件（保存前会自动创建 .autof.bak 备份）</label>
-        <select id="extEditorFileSelect" class="mono" onchange="loadExternalFileContent(this.value)"></select>
-      </div>
-      <div class="form-group">
-        <textarea id="extEditorTextarea" rows="16" class="mono" style="font-size:12.5px;line-height:1.45;"></textarea>
-      </div>
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('extEditorModal')">取消</button>
-        <button class="btn" onclick="saveExternalFileContent(false)">仅保存文件</button>
-        <button class="btn btn-primary" onclick="saveExternalFileContent(true)">保存并重载/重启该服务</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== 弹窗 7: 一键吞并迁移与清理老服务确认窗口 ==================== -->
-  <div id="takeoverModal" class="modal-backdrop hidden">
-    <div class="modal" style="max-width:740px;">
-      <div class="modal-header">
-        <span class="modal-title" id="takeoverModalTitle">🚀 吞并迁移与清理老服务确认</span>
-        <button class="btn btn-sm" onclick="closeModal('takeoverModal')">✕</button>
-      </div>
-      <input type="hidden" id="takeoverAppID" value="" />
-
-      <div id="takeoverSummaryBox" style="font-size:13.5px;"></div>
-
-      <div class="linked-box" style="margin-top:12px;">
-        <div style="font-weight:600;font-size:13.5px;margin-bottom:6px;color:var(--primary);">
-          请选择吞并迁移与老服务清理选项：
+  <!-- ==================== Modal: 原配置编辑 ==================== -->
+  <div class="modal-backdrop" id="editorModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="editorTitle">编辑原服务配置</div>
+          <div class="modal-sub">保存前会自动生成 .autof.bak 备份</div>
         </div>
-        <label class="checkbox-row">
-          <input type="checkbox" id="tkUseImportedCerts" checked />
-          直接沿用迁移过来的原 SSL 证书文件（存于 <span class="mono">/etc/autof/certs/</span>，零等待无缝生效 HTTPS）
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="tkStopOldService" checked />
-          停止并禁用原服务 / 原 Docker 容器（自动释放占用的 80 / 443 / 7000 等端口）
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="tkRemoveOldService" />
-          彻底清理老服务（删除原 Docker 容器或将原配置文件归档为 <span class="mono">.migrated_by_autof</span>）
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="tkStartAutof" checked />
-          迁移完成后立即启动 Autofrp 的 Caddy / frp 接管全部服务
-        </label>
+        <button class="btn btn-ghost btn-icon close" data-close="editorModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('takeoverModal')">取消</button>
-        <button class="btn btn-primary" onclick="confirmAndExecuteTakeover()">✅ 确认吞并并接管服务</button>
+      <div class="modal-body">
+        <input type="hidden" id="editorAppId" value="" />
+        <div class="field">
+          <label for="editorFile">配置文件</label>
+          <select id="editorFile" class="mono"></select>
+        </div>
+        <div class="field">
+          <label for="editorContent" class="sr-only">配置内容</label>
+          <textarea id="editorContent" rows="16" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="editorModal">取消</button>
+        <button class="btn" id="btnSaveEditor">仅保存</button>
+        <button class="btn btn-primary" id="btnSaveEditorReload">保存并重载服务</button>
       </div>
     </div>
   </div>
 
-  <!-- ==================== 弹窗 6: 登录鉴权 ==================== -->
-  <div id="loginModal" class="modal-backdrop hidden">
-    <div class="modal" style="max-width:400px;">
-      <div class="modal-header">
-        <span class="modal-title">🔒 登录 Autofrp 控制台</span>
+  <!-- ==================== Modal: 吞并迁移 ==================== -->
+  <div class="modal-backdrop" id="takeoverModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="takeoverTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="takeoverTitle">吞并迁移与清理</div>
+          <div class="modal-sub" id="takeoverSub">确认后将迁移规则与证书，并停用老服务</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="takeoverModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
       </div>
-      <div class="form-group">
-        <label>用户名</label>
-        <input type="text" id="loginUsername" value="admin" />
+      <div class="modal-body">
+        <input type="hidden" id="takeoverAppId" value="" />
+        <div id="takeoverSummary"></div>
+        <div class="card tight">
+          <div class="card-title" style="margin-bottom:8px">迁移选项</div>
+          <label class="check"><input type="checkbox" id="tkCerts" checked />沿用迁移过来的原 SSL 证书（零等待 HTTPS）</label>
+          <label class="check"><input type="checkbox" id="tkStopOld" checked />停止并禁用老服务/容器，释放 80 / 443 / 7000</label>
+          <label class="check"><input type="checkbox" id="tkRemoveOld" />彻底清理老服务（删除容器或归档原配置）</label>
+          <label class="check"><input type="checkbox" id="tkStart" checked />迁移后立即启动 Autofrp 接管流量</label>
+        </div>
       </div>
-      <div class="form-group">
-        <label>密码（可在服务器运行 sudo autof status 查看）</label>
-        <input type="password" id="loginPassword" onkeydown="if(event.key==='Enter')submitLogin()" />
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" style="width:100%;" onclick="submitLogin()">登录</button>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="takeoverModal">取消</button>
+        <button class="btn btn-primary" id="btnTakeoverConfirm">
+          <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-rocket"/></svg>确认吞并并接管
+        </button>
       </div>
     </div>
   </div>
 
-  <div id="toastContainer" class="toast-container"></div>
+  <!-- ==================== Modal: 确认对话框 ==================== -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal narrow" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="confirmTitle">确认操作</div>
+          <div class="modal-sub" id="confirmSub"></div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p id="confirmText" style="font-size:13.5px;color:var(--text-soft)"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="confirmCancel">取消</button>
+        <button class="btn btn-danger" id="confirmOk">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Modal: 登录 ==================== -->
+  <div class="modal-backdrop" id="loginModal" hidden>
+    <div class="modal narrow" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="loginTitle">登录控制台</div>
+          <div class="modal-sub">凭据可在服务器执行 <span class="mono">sudo autof pwd</span> 查看</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="loginUser">用户名</label>
+          <input type="text" id="loginUser" value="admin" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPass">密码</label>
+          <input type="password" id="loginPass" autocomplete="current-password" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-primary btn-block" id="btnLogin">登录</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>
