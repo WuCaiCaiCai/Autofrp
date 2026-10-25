@@ -52,23 +52,31 @@ curl -fsSL https://raw.githubusercontent.com/WuCaiCaiCai/Autofrp/main/autof.sh -
 sudo autof
 ```
 
-### 3. 各 Linux 发行版原生安装包支持
+### 3. 各 Linux 发行版原生安装包
 
-GitHub Releases 自动构建全架构静态二进制（`amd64` / `arm64` / `armv7` / `386` / `riscv64` / `loong64`）及各发行版安装包：
+Release 仅提供 **amd64 / arm64** 两种架构，每种架构产出 `deb` / `rpm` / `apk` 三种安装包：
 
 - **Debian / Ubuntu / Deepin (深度) / UOS**：
   ```bash
+  # amd64（arm64 机型把文件名中的 amd64 换成 arm64）
   curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_1.0.0_linux_amd64.deb
   sudo dpkg -i autof_1.0.0_linux_amd64.deb
   ```
 - **Fedora / RHEL / CentOS / Rocky / AlmaLinux**：
   ```bash
-  sudo dnf install -y https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof-1.0.0-1.x86_64.rpm
+  curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_1.0.0_linux_amd64.rpm
+  sudo rpm -ivh autof_1.0.0_linux_amd64.rpm
+  # 或：sudo dnf install -y ./autof_1.0.0_linux_amd64.rpm
   ```
-- **Arch Linux / Manjaro**：
+- **Alpine Linux**（包未签名，需 `--allow-untrusted`）：
   ```bash
-  curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/PKGBUILD && makepkg -si
+  curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_1.0.0_linux_amd64.apk
+  sudo apk add --allow-untrusted ./autof_1.0.0_linux_amd64.apk
   ```
+
+> Arch Linux / openSUSE 等暂无原生包，直接使用上面的一键脚本（下载静态二进制）即可，程序自身为静态编译零依赖。
+> 注意：安装包只提供服务本体，`frps` / `frpc` / `caddy` 仍在首次启动时按需自动下载。
+
 
 ---
 

@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  test-and-lint:
-    name: Go Test & Shell Check
+  test:
+    name: Test & Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,71 +33,36 @@ jobs:
         run: go vet ./...
 
       - name: Run unit tests
-        run: go test -v -race ./...
+        run: go test -race ./...
 
-      - name: Build linux/amd64 binary for distro tests
+      - name: Cross-compile amd64 & arm64
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o autof_linux_amd64 ./cmd/autof
+          for ARCH in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
+              go build -trimpath -ldflags="-s -w" -o "dist/autof_linux_${ARCH}" ./cmd/autof
+          done
+          ls -lh dist/
 
       - name: Upload amd64 binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: autof-linux-amd64
-          path: autof_linux_amd64
-
-  cross-compile:
-    name: Multi-Arch Build (${{ matrix.goarch }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goarch: amd64
-            goarm: ""
-          - goarch: arm64
-            goarm: ""
-          - goarch: arm
-            goarm: "7"
-          - goarch: "386"
-            goarm: ""
-          - goarch: riscv64
-            goarm: ""
-          - goarch: loong64
-            goarm: ""
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22.x"
-          cache: true
-
-      - name: Cross-compile static binary
-        env:
-          CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
-        run: |
-          go build -trimpath -ldflags="-s -w" -o "autof_linux_${GOARCH}" ./cmd/autof
-          ls -lh "autof_linux_${GOARCH}"
+          path: dist/autof_linux_amd64
 
   distro-smoke-test:
     name: Distro Compatibility (${{ matrix.distro }})
-    needs: test-and-lint
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - distro: debian-deepin
+          - distro: debian
             image: debian:bookworm-slim
           - distro: fedora
             image: fedora:latest
-          - distro: archlinux
-            image: archlinux:latest
+          - distro: alpine
+            image: alpine:latest
     container:
       image: ${{ matrix.image }}
     steps:
@@ -108,14 +73,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: autof-linux-amd64
+          path: dist
 
-      - name: Verify execution & distro detection in ${{ matrix.distro }}
+      - name: Smoke test on ${{ matrix.distro }}
         run: |
-          chmod +x autof_linux_amd64
-          install -m 0755 autof_linux_amd64 /usr/local/bin/autof
+          chmod +x dist/autof_linux_amd64
+          install -m 0755 dist/autof_linux_amd64 /usr/local/bin/autof
           export AUTOF_STATE_DIR="/tmp/autof_ci_test"
           autof version
           autof status
           autof detect
-          autof gen frps
-          autof gen caddy
+          autof gen frps > /dev/null
+          autof gen caddy > /dev/null
+          autof help > /dev/null
