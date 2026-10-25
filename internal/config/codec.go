@@ -13,7 +13,7 @@ import (
 const ConnCodePrefix = "autof://"
 
 // BuildConnectionBundle 从当前 VPS 配置构造客户端连接包
-func (c *Config) BuildConnectionBundle() ConnectionBundle {
+func (c Config) BuildConnectionBundle() ConnectionBundle {
 	addr := c.PublicAddr()
 	if addr == "" {
 		addr = c.Network.LocalIPv4
@@ -45,7 +45,7 @@ func (c *Config) BuildConnectionBundle() ConnectionBundle {
 }
 
 // ExportConnectionCode 将连接包编码为 autof:// 连接码
-func (c *Config) ExportConnectionCode() (string, error) {
+func (c Config) ExportConnectionCode() (string, error) {
 	bundle := c.BuildConnectionBundle()
 	data, err := json.Marshal(bundle)
 	if err != nil {

@@ -193,7 +193,7 @@ func (s *Store) Update(fn func(cfg *Config) error) error {
 }
 
 // PublicAddr 根据网络偏好返回首选公网地址
-func (c *Config) PublicAddr() string {
+func (c Config) PublicAddr() string {
 	switch c.Network.IPPref {
 	case "6":
 		if c.Network.PublicIPv6 != "" {
@@ -209,7 +209,7 @@ func (c *Config) PublicAddr() string {
 }
 
 // PublicAddrAlt 当网络偏好为 both 且同时具备 v4/v6 时返回备选 IPv6
-func (c *Config) PublicAddrAlt() string {
+func (c Config) PublicAddrAlt() string {
 	if c.Network.IPPref == "both" && c.Network.PublicIPv4 != "" && c.Network.PublicIPv6 != "" {
 		return c.Network.PublicIPv6
 	}
@@ -217,7 +217,7 @@ func (c *Config) PublicAddrAlt() string {
 }
 
 // NetPrefLabel 返回人类可读的网络偏好名称
-func (c *Config) NetPrefLabel() string {
+func (c Config) NetPrefLabel() string {
 	switch c.Network.IPPref {
 	case "4":
 		return "仅 IPv4"
