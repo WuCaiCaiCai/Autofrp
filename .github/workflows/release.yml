@@ -71,7 +71,7 @@ jobs:
             for FORMAT in deb rpm apk; do
               NFPM_ARCH="$ARCH" NFPM_VERSION="$VERSION" \
                 nfpm package -f nfpm.yaml -p "$FORMAT" \
-                -t "dist/autof_${VERSION}_linux_${ARCH}.${FORMAT}"
+                -t "dist/autof_linux_${ARCH}.${FORMAT}"
             done
             rm -f "dist/autof"
           done
@@ -88,6 +88,18 @@ jobs:
           for f in dist/*.deb; do echo "== $f"; dpkg-deb -I "$f" | grep -E "Package:|Version:|Architecture:"; done
           for f in dist/*.rpm; do echo "== $f"; rpm -qip "$f" | grep -E "Name|Version|Architecture"; done
           for f in dist/*.apk; do echo "== $f"; tar -xzOf "$f" .PKGINFO | grep -E "pkgname|pkgver|arch"; done
+
+      - name: Prune stale assets from existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "清理 $RELEASE_TAG 中的旧产物，避免历史文件名残留"
+            gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | while read -r name; do
+              [ -n "$name" ] || continue
+              gh release delete-asset "$RELEASE_TAG" "$name" -y >/dev/null 2>&1 || true
+            done
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
