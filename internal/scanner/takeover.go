@@ -44,6 +44,9 @@ type TakeoverPlan struct {
 	AppName            string                `json:"appName"`
 	Category           string                `json:"category"`
 	Container          string                `json:"container,omitempty"`
+	ComposeProject     string                `json:"composeProject,omitempty"`
+	ComposeService     string                `json:"composeService,omitempty"`
+	ComposeFile        string                `json:"composeFile,omitempty"`
 	SystemdUnit        string                `json:"systemdUnit,omitempty"`
 	PID                int                   `json:"pid,omitempty"`
 	TargetStateDir     string                `json:"targetStateDir"`
@@ -94,6 +97,9 @@ func PreviewTakeover(store *config.Store, appID string) (*TakeoverPlan, error) {
 		AppName:           target.Name,
 		Category:          target.Category,
 		Container:         target.Container,
+		ComposeProject:    target.ComposeProject,
+		ComposeService:    target.ComposeService,
+		ComposeFile:       target.ComposeFile,
 		SystemdUnit:       target.SystemdUnit,
 		PID:               target.PID,
 		TargetStateDir:    store.StateDir(),
@@ -169,7 +175,12 @@ func PreviewTakeover(store *config.Store, appID string) (*TakeoverPlan, error) {
 			fmt.Sprintf("3. 将识别出的 FRP 端口与 %d 条穿透隧道迁移到 Autofrp 配置 (%s)", len(plan.DiscoveredTunnels), store.ConfigPath()),
 		)
 	}
-	if target.Container != "" {
+	if target.Container != "" && target.ComposeProject != "" {
+		plan.CleanupSteps = append(plan.CleanupSteps,
+			fmt.Sprintf("4. 仅停止 Docker Compose 容器 [%s]（项目 %s / 服务 %s），不删除容器、不修改 compose 文件；如需彻底移除请手动编辑 %s 后执行 docker compose up -d",
+				target.Container, target.ComposeProject, target.ComposeService, target.ComposeFile),
+		)
+	} else if target.Container != "" {
 		plan.CleanupSteps = append(plan.CleanupSteps,
 			fmt.Sprintf("4. 停止原 Docker 容器 [%s] 并关闭其开机自启 (--restart=no)，释放占用的 80/443 等端口", target.Container),
 		)
@@ -337,6 +348,17 @@ func stopAndCleanOldApp(app DetectedApp, removeCompletely bool) []string {
 
 	// A. Docker 容器处理
 	if app.Container != "" {
+		// compose 管理的容器：只停止，绝不删除、不改 restart、不碰 compose 文件
+		if app.ComposeProject != "" {
+			if err := exec.Command("docker", "stop", app.Container).Run(); err == nil {
+				logs = append(logs, fmt.Sprintf("已停止 Compose 容器 [%s]（项目 %s / 服务 %s）",
+					app.Container, app.ComposeProject, app.ComposeService))
+			}
+			logs = append(logs, fmt.Sprintf("提示：该容器由 compose 管理（%s），未删除容器、未修改 compose；如需彻底移除请手动编辑该文件后执行 docker compose up -d",
+				app.ComposeFile))
+			return logs
+		}
+
 		_ = exec.Command("docker", "update", "--restart=no", app.Container).Run()
 		if err := exec.Command("docker", "stop", app.Container).Run(); err == nil {
 			logs = append(logs, fmt.Sprintf("已停止原 Docker 容器 [%s] 并禁用自动重启", app.Container))

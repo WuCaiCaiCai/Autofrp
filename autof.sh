@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Autofrp v1.0.4 - 远程 VPS 与本地服务器内网穿透 (frps/frpc) & Caddy 快速反代一键部署脚本
+# Autofrp v1.1.0 - 远程 VPS 与本地服务器内网穿透 (frps/frpc) & Caddy 快速反代一键部署脚本
 # 全面适配: Debian / Ubuntu / Deepin / UOS / Fedora / RHEL / Rocky / Alma / Arch / Manjaro / openSUSE / Alpine
 # Copyright (c) 2026 Wu Cai (WuCaiCaiCai)
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
 APP="autof"
-VERSION="1.0.4"
+VERSION="1.1.0"
 REPO="WuCaiCaiCai/Autofrp"
 TARGET_BIN="/usr/local/bin/$APP"
 

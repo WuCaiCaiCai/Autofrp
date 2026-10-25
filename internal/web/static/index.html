@@ -62,7 +62,7 @@
         <div>
           <div class="brand-name">
             Autofrp
-            <span class="badge badge-info" id="appVersion">v1.0.4</span>
+            <span class="badge badge-info" id="appVersion">v1.1.0</span>
           </div>
           <div class="brand-tag">穿透 · 反代 · 一体化</div>
         </div>
@@ -88,6 +88,11 @@
           <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-globe"/></svg>
           Caddy 反代
           <span class="nav-count" id="navCaddyCount">0</span>
+        </button>
+        <button class="nav-item" data-view="certs">
+          <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-key"/></svg>
+          证书管理
+          <span class="nav-count" id="navCertCount">0</span>
         </button>
         <button class="nav-item" data-view="scanner">
           <svg class="i" width="18" height="18" aria-hidden="true"><use href="#i-search"/></svg>
@@ -483,6 +488,53 @@
           </div>
         </section>
 
+        <!-- ==================== certs ==================== -->
+        <section class="section" id="view-certs">
+          <div class="card flush">
+            <div style="padding:16px 18px" class="section-head">
+              <div>
+                <h2 class="section-title">证书管理</h2>
+                <p class="section-desc">通过 acme.sh + DNS-01 申请泛域名证书；文件落在输出目录，可直接复制到 NPM / Nginx 的挂载目录。</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn" id="btnRenewAllCerts">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-rotate"/></svg>检查续期
+                </button>
+                <button class="btn btn-primary" id="btnAddCert">
+                  <svg class="i" width="15" height="15" aria-hidden="true"><use href="#i-plus"/></svg>申请证书
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap" style="border:0;border-top:1px solid var(--border);border-radius:0">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">名称 / 域名</th>
+                    <th scope="col">签发者</th>
+                    <th scope="col">到期</th>
+                    <th scope="col">来源</th>
+                    <th scope="col">证书路径</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="certsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title"><svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-info"/></svg>给 Docker 里的 NPM 使用</div>
+            </div>
+            <div class="muted" style="font-size:13px;display:grid;gap:6px">
+              <p>1. 在证书操作里点「导出 PEM」，复制 fullchain 与 privkey 内容。</p>
+              <p>2. 打开 NPM → SSL Certificates → Add Certificate → <strong>Custom Certificate</strong>，粘贴后保存，并在站点里选择该证书。</p>
+              <p>3. 续期后需要重新粘贴一次（NPM 的证书存在自己的数据库里，无法直接被文件替换）；面板会在证书临期时提示。</p>
+              <p class="faint">本工具不会修改 NPM 的数据库、容器或 compose 文件。</p>
+            </div>
+          </div>
+        </section>
+
         <!-- ==================== scanner ==================== -->
         <section class="section" id="view-scanner">
           <div class="card">
@@ -636,6 +688,29 @@
                 </a>
               </div>
             </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">备份与迁移</h2>
+                <p class="section-desc">导出配置、证书与令牌，换机时一键恢复；恢复只写 /etc/autof，不动 systemd、Docker 与 compose。</p>
+              </div>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <label class="check"><input type="checkbox" id="bkSecrets" checked />包含 Token / 密码 / 私钥</label>
+              <label class="check"><input type="checkbox" id="bkLegacy" />包含旧版配置与历史备份</label>
+              <button class="btn btn-primary" id="btnBackupExport">
+                <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-download"/></svg>下载备份
+              </button>
+            </div>
+            <hr class="divider" style="margin:14px 0" />
+            <div class="row">
+              <input type="file" id="bkFile" accept=".gz,.tgz,application/gzip" style="max-width:320px" aria-label="选择备份文件" />
+              <label class="check"><input type="checkbox" id="bkKeepCreds" checked />保留当前面板账号密码</label>
+              <button class="btn" id="btnBackupImport" disabled>恢复备份</button>
+            </div>
+            <div id="bkManifest" class="hint" style="margin-top:8px"></div>
           </div>
         </section>
       </div>
@@ -897,6 +972,100 @@
       <div class="modal-foot">
         <button class="btn btn-ghost" data-close="caddyModal">取消</button>
         <button class="btn btn-primary" id="btnSubmitCaddy">校验并保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Modal: 申请证书 ==================== -->
+  <div class="modal-backdrop" id="certModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="certTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="certTitle">申请证书</div>
+          <div class="modal-sub">通过 DNS-01 验证，支持泛域名（*.example.com）</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="certModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="certName">名称</label>
+            <input type="text" id="certName" placeholder="例如 主站泛域名" />
+          </div>
+          <div class="field">
+            <label for="certKeyType">密钥类型</label>
+            <select id="certKeyType">
+              <option value="ec-256">ECDSA P-256（推荐）</option>
+              <option value="2048">RSA 2048</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="certDomains">域名（逗号或换行分隔，支持 *.example.com）</label>
+          <textarea id="certDomains" rows="2" placeholder="example.com, *.example.com"></textarea>
+          <span class="hint">泛域名会自动补上主域名。证书申请使用下方 DNS 服务商的 API 凭据。</span>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="certProvider">DNS 服务商</label>
+            <select id="certProvider">
+              <option value="">跟随全局设置</option>
+              <option value="cloudflare">Cloudflare</option>
+              <option value="alidns">阿里云 AliDNS</option>
+              <option value="dnspod">腾讯云 DNSPod</option>
+              <option value="duckdns">DuckDNS</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="certTargetDir">输出目录</label>
+            <input type="text" id="certTargetDir" class="mono" placeholder="/etc/autof/certs/example.com" />
+          </div>
+        </div>
+        <div class="banner banner-info">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-info"/></svg>
+          <div id="certCredHint" style="font-size:12.5px"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="certAutoRenew" checked />到期前自动续期（面板每 12 小时检查一次）</label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="certModal">取消</button>
+        <button class="btn btn-primary" id="btnSubmitCert">开始申请</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Modal: 导出 PEM ==================== -->
+  <div class="modal-backdrop" id="pemModal" hidden>
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="pemTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="pemTitle">导出证书</div>
+          <div class="modal-sub">复制内容到 NPM 的自定义证书，或从文件路径读取</div>
+        </div>
+        <button class="btn btn-ghost btn-icon close" data-close="pemModal" aria-label="关闭">
+          <svg class="i" width="16" height="16" aria-hidden="true"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <div class="row-between">
+            <label for="pemCert">fullchain.pem</label>
+            <button class="btn btn-sm btn-ghost" id="btnCopyPemCert">复制</button>
+          </div>
+          <textarea id="pemCert" rows="7" readonly class="mono"></textarea>
+        </div>
+        <div class="field">
+          <div class="row-between">
+            <label for="pemKey">privkey.pem</label>
+            <button class="btn btn-sm btn-ghost" id="btnCopyPemKey">复制</button>
+          </div>
+          <textarea id="pemKey" rows="7" readonly class="mono"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="pemModal">关闭</button>
       </div>
     </div>
   </div>

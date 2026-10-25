@@ -2,7 +2,7 @@ package config
 
 const (
 	AppName    = "autof"
-	AppVersion = "1.0.4"
+	AppVersion = "1.1.0"
 )
 
 // Config 保存 Autofrp 的完整配置与状态（远程 VPS 与本地服务器通用）
@@ -83,6 +83,21 @@ type CaddyConfig struct {
 	DNSSecret    string      `json:"dnsSecret"`    // DNS Secret（如阿里云 AccessKeySecret）
 	CustomGlobal string      `json:"customGlobal"` // 自定义全局选项片段
 	Rules        []CaddyRule `json:"rules"`        // 反代规则列表
+	Certificates []CertEntry `json:"certificates"` // 由 acme.sh 托管的证书（支持泛域名）
+}
+
+// CertEntry 表示一张由面板申请/续期的证书
+type CertEntry struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`         // 备注名
+	Domains      []string `json:"domains"`      // 主域名与 SAN，如 ["example.com", "*.example.com"]
+	KeyType      string   `json:"keyType"`      // "ec-256" 或 "2048"
+	Provider     string   `json:"provider"`     // cloudflare / alidns / dnspod / duckdns
+	TargetDir    string   `json:"targetDir"`    // 证书输出目录（fullchain.pem / privkey.pem）
+	AutoRenew    bool     `json:"autoRenew"`    // 是否自动续期
+	CreatedAt    string   `json:"createdAt"`    // RFC3339
+	LastIssuedAt string   `json:"lastIssuedAt"` // RFC3339
+	LastError    string   `json:"lastError"`    // 最近一次失败原因
 }
 
 // CaddyRule 表示一条 Caddy 反向代理规则
