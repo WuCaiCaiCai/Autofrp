@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# 同一个标签重复触发时，取消上一次未完成的发布
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: "1.22.x"
 
@@ -21,6 +26,7 @@ jobs:
   release:
     name: Build static binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -44,6 +50,16 @@ jobs:
           fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Verify version consistency
+        run: |
+          APP_VER="$(sed -n 's/.*AppVersion = "\(.*\)"/\1/p' internal/config/types.go)"
+          SH_VER="$(sed -n 's/^VERSION="\(.*\)"$/\1/p' autof.sh)"
+          echo "tag=$VERSION  AppVersion=$APP_VER  autof.sh=$SH_VER"
+          if [ "$APP_VER" != "$VERSION" ] || [ "$SH_VER" != "$VERSION" ]; then
+            echo "::error::版本号不一致：tag=$VERSION / AppVersion=$APP_VER / autof.sh=$SH_VER。请同步修改后再打标签。"
+            exit 1
+          fi
 
       - name: Test before release
         run: |
