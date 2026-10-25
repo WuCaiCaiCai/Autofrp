@@ -54,8 +54,15 @@ async function loadOverview() {
 function renderAll(data) {
   const cfg = data.config;
   const svcs = data.services;
+  const sys = data.systemInfo || {};
 
   document.getElementById("appVersion").textContent = "v" + (cfg.version || "2.0.0");
+  if (sys.prettyName) {
+    document.getElementById("distroBadge").textContent = `${sys.prettyName} (${sys.arch || ""})`;
+  }
+
+  // 渲染探测到的原服务列表与顶部提示
+  renderDetectedApps(data.detectedApps || []);
 
   // 角色切换高亮
   applyRoleView(cfg.nodeRole || "both", false);
@@ -228,6 +235,7 @@ function renderCaddyRules(cfg) {
   const tlsLabels = {
     auto: `<span class="badge badge-success">自动公网 HTTPS</span>`,
     dns: `<span class="badge badge-purple">DNS API 证书</span>`,
+    custom: `<span class="badge badge-info">已迁移原证书</span>`,
     internal: `<span class="badge badge-warning">内网自签 HTTPS</span>`,
     http: `<span class="badge badge-info">纯 HTTP</span>`,
   };
@@ -291,9 +299,10 @@ function syncDefaultRemotePort() {
 }
 
 function switchTab(tab) {
-  ["frps", "frpc", "caddy", "system"].forEach((t) => {
+  ["frps", "frpc", "caddy", "scanner", "system"].forEach((t) => {
     const btn = document.getElementById("tabBtn" + capitalize(t));
     const panel = document.getElementById("tabPanel" + capitalize(t));
+    if (!btn || !panel) return;
     if (t === tab) {
       btn.classList.add("active");
       panel.classList.remove("hidden");
@@ -506,6 +515,9 @@ function openCaddyRuleModal(rule) {
   document.getElementById("caddyRuleListen").value = rule ? rule.listen : "";
   document.getElementById("caddyRuleUpstream").value = rule ? rule.upstream : "";
   document.getElementById("caddyRuleTLSMode").value = rule ? rule.tlsMode || "auto" : "auto";
+  document.getElementById("caddyRuleCertFile").value = rule ? rule.certFile || "" : "";
+  document.getElementById("caddyRuleKeyFile").value = rule ? rule.keyFile || "" : "";
+  toggleCustomCertInputs();
   document.getElementById("caddyRuleEncode").checked = rule ? rule.enableEncode !== false : true;
   document.getElementById("caddyRuleSkipVerify").checked = rule ? !!rule.skipTlsVerify : false;
   document.getElementById("caddyRuleEnabled").checked = rule ? rule.enabled !== false : true;
@@ -554,6 +566,11 @@ function quickProxySelfWebUI() {
   });
 }
 
+function toggleCustomCertInputs() {
+  const mode = document.getElementById("caddyRuleTLSMode").value;
+  document.getElementById("caddyCustomCertBox").classList.toggle("hidden", mode !== "custom");
+}
+
 async function submitCaddyRuleForm() {
   const payload = {
     id: document.getElementById("caddyRuleID").value,
@@ -561,6 +578,8 @@ async function submitCaddyRuleForm() {
     listen: document.getElementById("caddyRuleListen").value.trim(),
     upstream: document.getElementById("caddyRuleUpstream").value.trim(),
     tlsMode: document.getElementById("caddyRuleTLSMode").value,
+    certFile: document.getElementById("caddyRuleCertFile").value.trim(),
+    keyFile: document.getElementById("caddyRuleKeyFile").value.trim(),
     enableEncode: document.getElementById("caddyRuleEncode").checked,
     skipTlsVerify: document.getElementById("caddyRuleSkipVerify").checked,
     enabled: document.getElementById("caddyRuleEnabled").checked,
@@ -743,3 +762,188 @@ function escapeHtml(str) {
 window.addEventListener("DOMContentLoaded", () => {
   loadOverview();
 });
+
+// ==================== 原服务探测、在线编辑与一键吞并迁移 ====================
+function renderDetectedApps(apps) {
+  const externalApps = apps.filter((a) => !a.managedByAutof);
+  const banner = document.getElementById("detectedBanner");
+  const bannerText = document.getElementById("detectedBannerText");
+  if (externalApps.length > 0) {
+    banner.classList.remove("hidden");
+    bannerText.textContent = externalApps.map((a) => `${a.name}${a.running ? " (运行中)" : ""}`).join("、");
+  } else {
+    banner.classList.add("hidden");
+  }
+
+  const tbody = document.getElementById("detectedAppsBody");
+  if (!apps || apps.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">当前未在服务器上检测到其他 NPM、Nginx、原版 Caddy 或 frp 实例</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = apps
+    .map((app) => {
+      const stBadge = app.running
+        ? `<span class="badge badge-success">● 运行中</span>`
+        : `<span class="badge badge-warning">○ 未运行</span>`;
+      const meta = app.container
+        ? `Docker: <span class="mono">${escapeHtml(app.container)}</span>`
+        : app.pid
+        ? `PID: <span class="mono">${app.pid}</span>`
+        : escapeHtml(app.binaryOrImage || "-");
+      const ports = (app.listenPorts || []).length ? `<span class="mono">${escapeHtml(app.listenPorts.join(", "))}</span>` : "-";
+      const cfgFiles = app.configFiles || [];
+      const primaryCfg = app.primaryConfig ? `<span class="mono">${escapeHtml(app.primaryConfig)}</span>` : "未找到配置文件";
+      const managedTag = app.managedByAutof
+        ? `<span class="badge badge-info">Autofrp 已托管</span>`
+        : `<span class="badge badge-warning">外部 / 原生服务</span>`;
+
+      const editBtn =
+        cfgFiles.length > 0
+          ? `<button class="btn btn-sm" onclick='openExtEditorModal(${JSON.stringify(app)})'>✏️ 查看/编辑配置</button>`
+          : "";
+      const takeoverBtn =
+        !app.managedByAutof && (app.canImport || app.running || cfgFiles.length > 0)
+          ? `<button class="btn btn-sm btn-primary" onclick='openTakeoverModal("${escapeHtml(app.id)}")'>🚀 一键吞并迁移</button>`
+          : "";
+
+      return `<tr>
+        <td><strong>${escapeHtml(app.name)}</strong><div style="margin-top:4px;">${managedTag}</div></td>
+        <td>${stBadge}<div class="sub-hint" style="margin-top:3px;">${meta}</div></td>
+        <td>${ports}</td>
+        <td>${primaryCfg}${cfgFiles.length > 1 ? `<div class="sub-hint">共 ${cfgFiles.length} 个配置文件</div>` : ""}</td>
+        <td class="sub-hint">${escapeHtml(app.note || "-")}</td>
+        <td><div class="btn-group">${editBtn}${takeoverBtn}</div></td>
+      </tr>`;
+    })
+    .join("");
+}
+
+async function openExtEditorModal(app) {
+  document.getElementById("extEditorTitle").textContent = `在线编辑配置文件 · ${app.name}`;
+  document.getElementById("extEditorAppID").value = app.id;
+  const sel = document.getElementById("extEditorFileSelect");
+  const files = app.configFiles || [];
+  sel.innerHTML = files.map((f) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
+  document.getElementById("extEditorModal").classList.remove("hidden");
+  if (files.length > 0) {
+    await loadExternalFileContent(files[0]);
+  }
+}
+
+async function loadExternalFileContent(path) {
+  const ta = document.getElementById("extEditorTextarea");
+  ta.value = "正在读取文件...";
+  try {
+    const data = await apiFetch(`/api/scanner/file?path=${encodeURIComponent(path)}`);
+    ta.value = data.content || "";
+  } catch (e) {
+    ta.value = "";
+    showToast(e.message, "error");
+  }
+}
+
+async function saveExternalFileContent(reload) {
+  const path = document.getElementById("extEditorFileSelect").value;
+  const content = document.getElementById("extEditorTextarea").value;
+  const appId = document.getElementById("extEditorAppID").value;
+  try {
+    const data = await apiFetch("/api/scanner/file", {
+      method: "POST",
+      body: JSON.stringify({ path, content, reload, appId }),
+    });
+    stateData = data;
+    renderAll(data);
+    closeModal("extEditorModal");
+    showToast(reload ? "配置已保存并重载服务（已生成 .autof.bak 备份）" : "配置文件已保存（已生成 .autof.bak 备份）", "success");
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}
+
+async function openTakeoverModal(appId) {
+  showToast("正在扫描并分析原服务配置与 SSL 证书...");
+  try {
+    const plan = await apiFetch(`/api/scanner/takeover-preview?appId=${encodeURIComponent(appId)}`);
+    document.getElementById("takeoverAppID").value = plan.appId;
+    document.getElementById("takeoverModalTitle").textContent = `🚀 确认吞并迁移 · ${plan.appName}`;
+
+    const rules = plan.discoveredRules || [];
+    const certs = plan.discoveredCerts || [];
+    const tunnels = plan.discoveredTunnels || [];
+    const steps = plan.cleanupSteps || [];
+
+    let html = `<div style="margin-bottom:10px;">
+      即将把 <strong>${escapeHtml(plan.appName)}</strong> 的配置与证书迁移至 <span class="mono">${escapeHtml(plan.targetStateDir)}</span>：
+    </div>`;
+
+    if (rules.length > 0) {
+      html += `<div style="margin-bottom:10px;">
+        <strong>识别到的反向代理站点 (${rules.length} 条)：</strong>
+        <div class="code-box" style="max-height:140px;margin-top:4px;">${rules
+          .map((r) => `${r.hasSsl ? "🔒 [HTTPS]" : "🌐 [HTTP] "} ${escapeHtml(r.domain)}  ──►  ${escapeHtml(r.upstream)}`)
+          .join("\n")}</div>
+      </div>`;
+    }
+
+    if (certs.length > 0) {
+      html += `<div style="margin-bottom:10px;">
+        <strong>识别到的 SSL 证书 (${certs.length} 套，将自动复制到 <span class="mono">${escapeHtml(plan.certsTargetDir)}</span>)：</strong>
+        <div class="code-box" style="max-height:110px;margin-top:4px;">${certs
+          .map((c) => `📜 ${escapeHtml(c.domain)}: ${escapeHtml(c.srcCertPath)} ──► ${escapeHtml(c.destCertPath)}`)
+          .join("\n")}</div>
+      </div>`;
+    }
+
+    if (tunnels.length > 0 || plan.discoveredFrpsPort) {
+      html += `<div style="margin-bottom:10px;">
+        <strong>识别到的 FRP 穿透配置：</strong>
+        <div class="code-box" style="max-height:110px;margin-top:4px;">${
+          plan.discoveredFrpsPort ? `frps 控制端口: ${plan.discoveredFrpsPort}\n` : ""
+        }${tunnels.map((t) => `[${t.type}] ${t.name}: ${t.localIP}:${t.localPort} -> :${t.remotePort}`).join("\n")}</div>
+      </div>`;
+    }
+
+    html += `<div>
+      <strong>将执行的吞并步骤：</strong>
+      <ul style="margin:6px 0 0 18px;color:var(--text-muted);font-size:13px;">
+        ${steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}
+      </ul>
+    </div>`;
+
+    document.getElementById("takeoverSummaryBox").innerHTML = html;
+    document.getElementById("takeoverModal").classList.remove("hidden");
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}
+
+async function confirmAndExecuteTakeover() {
+  const payload = {
+    appId: document.getElementById("takeoverAppID").value,
+    useImportedCerts: document.getElementById("tkUseImportedCerts").checked,
+    stopOldService: document.getElementById("tkStopOldService").checked,
+    removeOldService: document.getElementById("tkRemoveOldService").checked,
+    startAutofService: document.getElementById("tkStartAutof").checked,
+  };
+  showToast("正在执行配置与证书迁移并接管服务...");
+  try {
+    const data = await apiFetch("/api/scanner/takeover", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    stateData = data;
+    renderAll(data);
+    closeModal("takeoverModal");
+    const res = data.takeoverResult || {};
+    showToast(
+      `吞并完成！已导入反代 ${res.importedRules || 0} 条、迁移证书 ${res.copiedCerts || 0} 套`,
+      "success"
+    );
+    if (res.importedRules > 0) {
+      switchTab("caddy");
+    }
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}

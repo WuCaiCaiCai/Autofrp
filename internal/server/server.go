@@ -83,6 +83,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/caddy/settings", s.withAuth(s.handleCaddySettings))
 	s.mux.HandleFunc("/api/caddy/rule", s.withAuth(s.handleCaddyRule))
 
+	// 原服务探测、在线编辑与一键吞并迁移 (NPM / Nginx / 原版 Caddy / 原版 frp)
+	s.mux.HandleFunc("/api/scanner/file", s.withAuth(s.handleScannerFile))
+	s.mux.HandleFunc("/api/scanner/import", s.withAuth(s.handleScannerImport))
+	s.mux.HandleFunc("/api/scanner/takeover-preview", s.withAuth(s.handleTakeoverPreview))
+	s.mux.HandleFunc("/api/scanner/takeover", s.withAuth(s.handleTakeoverExecute))
+
 	// 系统与 WebUI 设置
 	s.mux.HandleFunc("/api/system/web", s.withAuth(s.handleSystemWeb))
 }

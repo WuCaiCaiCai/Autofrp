@@ -11,6 +11,7 @@ import (
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 	"github.com/WuCaiCaiCai/Autofrp/internal/frp"
 	"github.com/WuCaiCaiCai/Autofrp/internal/netenv"
+	"github.com/WuCaiCaiCai/Autofrp/internal/scanner"
 	"github.com/WuCaiCaiCai/Autofrp/internal/systemd"
 )
 
@@ -19,7 +20,9 @@ func (s *Server) buildOverviewResponse() map[string]any {
 	connCode, _ := cfg.ExportConnectionCode()
 
 	return map[string]any{
-		"config": cfg,
+		"config":       cfg,
+		"systemInfo":   netenv.DetectSystemInfo(),
+		"detectedApps": scanner.ScanServer(s.store.StateDir()),
 		"services": map[string]any{
 			"frps":  systemd.QueryStatus("frps"),
 			"frpc":  systemd.QueryStatus("frpc"),
@@ -508,6 +511,94 @@ func (s *Server) handleSystemWeb(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400 * 30,
 	})
 	writeJSON(w, http.StatusOK, s.buildOverviewResponse())
+}
+
+func (s *Server) handleScannerFile(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		path := strings.TrimSpace(r.URL.Query().Get("path"))
+		content, err := scanner.ReadExternalFile(path)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"path": path, "content": content})
+
+	case http.MethodPost:
+		var req struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+			Reload  bool   `json:"reload"`
+			AppID   string `json:"appId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+			return
+		}
+		if err := scanner.SaveExternalFile(req.Path, req.Content, req.Reload, req.AppID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.buildOverviewResponse())
+
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+	}
+}
+
+func (s *Server) handleScannerImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+	var req struct {
+		Category   string `json:"category"`
+		ConfigPath string `json:"configPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	count, err := scanner.ImportExternalConfig(s.store, req.Category, req.ConfigPath)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	_ = frp.WriteConfigs(s.store)
+	_ = caddy.WriteAndApply(s.store, false)
+	resp := s.buildOverviewResponse()
+	resp["importedCount"] = count
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleTakeoverPreview(w http.ResponseWriter, r *http.Request) {
+	appID := strings.TrimSpace(r.URL.Query().Get("appId"))
+	plan, err := scanner.PreviewTakeover(s.store, appID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
+func (s *Server) handleTakeoverExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
+	var req scanner.TakeoverRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求格式错误"})
+		return
+	}
+	res, err := scanner.ExecuteTakeover(s.store, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	resp := s.buildOverviewResponse()
+	resp["takeoverResult"] = res
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func upsertTunnel(list *[]config.TunnelRule, item config.TunnelRule) {

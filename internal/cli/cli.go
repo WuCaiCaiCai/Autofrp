@@ -12,6 +12,7 @@ import (
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 	"github.com/WuCaiCaiCai/Autofrp/internal/frp"
 	"github.com/WuCaiCaiCai/Autofrp/internal/netenv"
+	"github.com/WuCaiCaiCai/Autofrp/internal/scanner"
 	"github.com/WuCaiCaiCai/Autofrp/internal/server"
 	"github.com/WuCaiCaiCai/Autofrp/internal/systemd"
 )
@@ -71,6 +72,17 @@ func Run(args []string) error {
 	case "status":
 		printDashboardHeader(store)
 		return nil
+
+	case "detect", "scan":
+		printDetectedServices(store)
+		return nil
+
+	case "takeover":
+		if len(args) < 2 {
+			printDetectedServices(store)
+			return fmt.Errorf("用法: autof takeover <服务ID，如 docker-npm / host-nginx / host-caddy / host-frps>")
+		}
+		return handleCLITakeover(store, args[1])
 
 	case "list":
 		printAllRules(store)
@@ -221,6 +233,7 @@ func installWebService(store *config.Store) error {
 
 func printDashboardHeader(store *config.Store) {
 	cfg := store.Get()
+	sysInfo := netenv.DetectSystemInfo()
 	stFrps := systemd.QueryStatus("frps")
 	stFrpc := systemd.QueryStatus("frpc")
 	stCaddy := systemd.QueryStatus("caddy")
@@ -229,6 +242,7 @@ func printDashboardHeader(store *config.Store) {
 	rule := strings.Repeat("═", 64)
 	fmt.Printf("%s%s%s\n", cCyan, rule, cReset)
 	fmt.Printf("  %sAutofrp%s · 穿透 (frps/frpc) & Caddy 反代管理  %sv%s%s\n", cBold, cReset, cDim, config.AppVersion, cReset)
+	fmt.Printf("  %s系统环境%s  %s (%s / %s)\n", cCyan, cReset, sysInfo.PrettyName, sysInfo.Arch, sysInfo.InitSystem)
 	fmt.Printf("%s%s%s\n", cCyan, rule, cReset)
 	fmt.Printf("  %s公网 IPv4%s  %-10s %s\n", cCyan, cReset, cfg.Network.V4Status, cfg.Network.PublicIPv4)
 	fmt.Printf("  %s公网 IPv6%s  %-10s %s\n", cCyan, cReset, cfg.Network.V6Status, cfg.Network.PublicIPv6)
@@ -276,9 +290,10 @@ func interactiveMain(store *config.Store) error {
 		fmt.Printf("  %s2）%s 远程 VPS 端：安装/启动 frps 与添加穿透服务\n", cCyan+cBold, cReset)
 		fmt.Printf("  %s3）%s 本地服务器端：导入连接码并启动 frpc 客户端\n", cCyan+cBold, cReset)
 		fmt.Printf("  %s4）%s Caddy 反代：快速添加域名/端口反向代理\n", cCyan+cBold, cReset)
-		fmt.Printf("  %s5）%s 导出连接码 / 打印配置文件 (frps / frpc / Caddyfile)\n", cCyan+cBold, cReset)
-		fmt.Printf("  %s6）%s 修改 WebUI 端口与密码 / 刷新网络探测\n", cCyan+cBold, cReset)
-		fmt.Printf("  %s7）%s 完全卸载\n", cCyan+cBold, cReset)
+		fmt.Printf("  %s5）%s 原服务探测与一键吞并 (NPM / Nginx / 原版 Caddy / frp)\n", cCyan+cBold, cReset)
+		fmt.Printf("  %s6）%s 导出连接码 / 打印配置文件 (frps / frpc / Caddyfile)\n", cCyan+cBold, cReset)
+		fmt.Printf("  %s7）%s 修改 WebUI 端口与密码 / 刷新网络探测\n", cCyan+cBold, cReset)
+		fmt.Printf("  %s8）%s 完全卸载\n", cCyan+cBold, cReset)
 		fmt.Printf("  %s0）%s 退出\n", cCyan+cBold, cReset)
 
 		choice := ask("\n请选择", "0")
@@ -296,11 +311,13 @@ func interactiveMain(store *config.Store) error {
 		case "4":
 			interactiveCaddyMenu(store)
 		case "5":
+			interactiveScannerMenu(store)
+		case "6":
 			_ = handleExport(store)
 			pause()
-		case "6":
-			interactiveSettingsMenu(store)
 		case "7":
+			interactiveSettingsMenu(store)
+		case "8":
 			if err := uninstallAll(store); err == nil {
 				return nil
 			}
@@ -653,6 +670,8 @@ func printUsage(stateDir string) {
   autof web [--listen :7500]     前台运行 WebUI 控制台
   autof web-install              安装并启动 WebUI 后台服务 (systemd)
   autof status                   查看网络、组件状态及 WebUI 登录信息
+  autof detect                   扫描服务器原有进程与配置 (NPM / Nginx / 原版 Caddy / frp)
+  autof takeover <服务ID>        识别并迁移原服务配置与证书到 /etc/autof/，清理老服务
   autof list                     查看穿透规则与 Caddy 反代列表
   autof export                   导出客户端 autof:// 连接码与 frpc.toml
   autof import <连接码或文件>    在本地服务器一键导入连接码或 frpc.toml
@@ -665,4 +684,89 @@ func printUsage(stateDir string) {
 
 配置目录: %s
 `, config.AppVersion, stateDir)
+}
+
+func printDetectedServices(store *config.Store) []scanner.DetectedApp {
+	apps := scanner.ScanServer(store.StateDir())
+	fmt.Printf("%s▌ 原服务器反代与穿透进程扫描结果 (%d 项)%s\n", cCyan+cBold, len(apps), cReset)
+	if len(apps) == 0 {
+		fmt.Println("  未检测到外部 NPM、Nginx、原版 Caddy 或 frp 实例。")
+		return nil
+	}
+	for i, a := range apps {
+		runLabel := cYellow + "○ 未运行" + cReset
+		if a.Running {
+			runLabel = cGreen + "● 运行中" + cReset
+		}
+		fmt.Printf("  [%d] ID: %s%-16s%s %s  %s\n", i+1, cBold, a.ID, cReset, a.Name, runLabel)
+		if a.Container != "" {
+			fmt.Printf("      Docker 容器 : %s (%s)\n", a.Container, a.BinaryOrImage)
+		} else if a.PID > 0 {
+			fmt.Printf("      进程信息    : PID %d (%s)\n", a.PID, a.Cmdline)
+		}
+		if len(a.ListenPorts) > 0 {
+			fmt.Printf("      监听端口    : %s\n", strings.Join(a.ListenPorts, ", "))
+		}
+		if len(a.ConfigFiles) > 0 {
+			fmt.Printf("      配置文件    : %s\n", strings.Join(a.ConfigFiles, ", "))
+		}
+	}
+	return apps
+}
+
+func interactiveScannerMenu(store *config.Store) {
+	apps := printDetectedServices(store)
+	if len(apps) == 0 {
+		pause()
+		return
+	}
+	appID := ask("\n输入要吞并迁移的服务 ID（如 docker-npm / host-nginx / host-caddy，留空返回）", "")
+	if appID == "" {
+		return
+	}
+	if err := handleCLITakeover(store, appID); err != nil {
+		fmt.Printf("%s[x]%s %v\n", cRed, cReset, err)
+	}
+	pause()
+}
+
+func handleCLITakeover(store *config.Store, appID string) error {
+	plan, err := scanner.PreviewTakeover(store, appID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\n%s▌ 吞并迁移预览确认 · %s (%s)%s\n", cCyan+cBold, plan.AppName, plan.AppID, cReset)
+	fmt.Printf("  识别到反代规则 : %d 条\n", len(plan.DiscoveredRules))
+	for _, r := range plan.DiscoveredRules {
+		fmt.Printf("    - %s -> %s (SSL: %v)\n", r.Domain, r.Upstream, r.HasSSL)
+	}
+	fmt.Printf("  识别到 SSL 证书: %d 套 (将迁移至 %s)\n", len(plan.DiscoveredCerts), plan.CertsTargetDir)
+	for _, c := range plan.DiscoveredCerts {
+		fmt.Printf("    - %s: %s -> %s\n", c.Domain, c.SrcCertPath, c.DestCertPath)
+	}
+	fmt.Println("  将执行的步骤:")
+	for _, s := range plan.CleanupSteps {
+		fmt.Printf("    %s\n", s)
+	}
+	if !confirm("\n是否确认执行吞并迁移并停止原服务？") {
+		fmt.Println("已取消")
+		return nil
+	}
+	removeOld := confirm("是否同时彻底删除原 Docker 容器 / 归档原配置文件？")
+	res, err := scanner.ExecuteTakeover(store, scanner.TakeoverRequest{
+		AppID:             appID,
+		UseImportedCerts:  true,
+		StopOldService:    true,
+		RemoveOldService:  removeOld,
+		StartAutofService: true,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s[+]%s 吞并迁移完成！导入反代 %d 条，迁移证书 %d 套，备份目录: %s\n",
+		cGreen, cReset, res.ImportedRules, res.CopiedCerts, res.BackupDir)
+	for _, l := range res.Logs {
+		fmt.Printf("    - %s\n", l)
+	}
+	return nil
 }

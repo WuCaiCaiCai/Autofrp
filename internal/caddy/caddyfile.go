@@ -70,6 +70,10 @@ func writeRuleBlock(b *strings.Builder, r config.CaddyRule, caddyCfg config.Cadd
 	switch r.TLSMode {
 	case "internal":
 		b.WriteString("\ttls internal\n")
+	case "custom":
+		if r.CertFile != "" && r.KeyFile != "" {
+			b.WriteString(fmt.Sprintf("\ttls %s %s\n", r.CertFile, r.KeyFile))
+		}
 	case "dns":
 		writeDNSTLSBlock(b, caddyCfg)
 	case "http":

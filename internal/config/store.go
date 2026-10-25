@@ -61,12 +61,14 @@ func NewStore(customDir string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) StateDir() string       { return s.stateDir }
-func (s *Store) ConfigPath() string     { return filepath.Join(s.stateDir, "config.json") }
-func (s *Store) FrpsConfPath() string   { return filepath.Join(s.stateDir, "frps.toml") }
-func (s *Store) FrpcConfPath() string   { return filepath.Join(s.stateDir, "frpc.toml") }
+func (s *Store) StateDir() string         { return s.stateDir }
+func (s *Store) ConfigPath() string       { return filepath.Join(s.stateDir, "config.json") }
+func (s *Store) FrpsConfPath() string     { return filepath.Join(s.stateDir, "frps.toml") }
+func (s *Store) FrpcConfPath() string     { return filepath.Join(s.stateDir, "frpc.toml") }
 func (s *Store) ClientExportPath() string { return filepath.Join(s.stateDir, "clients", "frpc.toml") }
-func (s *Store) CaddyfilePath() string  { return filepath.Join(s.stateDir, "Caddyfile") }
+func (s *Store) CaddyfilePath() string    { return filepath.Join(s.stateDir, "Caddyfile") }
+func (s *Store) CertsDir() string         { return filepath.Join(s.stateDir, "certs") }
+func (s *Store) BackupDir() string        { return filepath.Join(s.stateDir, "backup") }
 
 // DefaultConfig 生成带合理默认值的初始配置
 func DefaultConfig() *Config {
