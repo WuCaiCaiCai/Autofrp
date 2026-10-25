@@ -10,6 +10,11 @@ const state = {
   logTarget: "frps",
   logTimer: null,
   logRaw: "",
+  logPrev: [],
+  logKey: null,
+  logHidden: 0,
+  logShown: 0,
+  logLoading: false,
   logUpdated: null,
   imported: null,
   wizardStep: 1,
@@ -219,7 +224,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.0.3"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.0.4"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -734,7 +739,7 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.0.3")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.0.4")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
@@ -1187,67 +1192,168 @@ function openExport() {
 
 /* ------------------------------------------------------------ logs */
 function setLogTarget(target) {
+  if (state.logTarget !== target) {
+    state.logRaw = "";
+    state.logPrev = [];
+    state.logKey = null;
+    state.logHidden = 0;
+    state.logShown = 0;
+    const view = $("logView");
+    if (view) view.replaceChildren();
+  }
   state.logTarget = target;
   $$(".segmented [data-log]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.log === target)));
 }
 
-const LOG_PATTERN = /(error|failed|failure|refused|timeout|denied|panic|fatal|错误|失败|拒绝)/i;
-const LOG_WARN_PATTERN = /(warn|warning|deprecated|警告|即将)/i;
+const LOG_ERROR = /(error|failed|failure|refused|timeout|denied|panic|fatal|错误|失败|拒绝)/i;
+const LOG_WARN = /(warn|warning|deprecated|警告|即将)/i;
+const LOG_MAX_DOM = 1200;
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+// 常见的“良性噪声”：客户端主动取消、连接正常关闭，不代表服务异常
+const LOG_NOISE = [
+  /aborting with incomplete response/i,
+  /H3_REQUEST_CANCELLED/i,
+  /context canceled/i,
+  /stream closed/i,
+  /broken pipe/i,
+  /TLS handshake error from .*: EOF/i,
+  /client disconnected/i,
+];
 
-function renderLogs(lines) {
-  const view = $("logView");
-  const follow = $("logFollow").checked;
-  const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 24;
-  const keepTop = follow && atBottom;
+function logKey() {
+  return `${$("logNoise").checked ? 1 : 0}|${($("logFilter").value || "").trim().toLowerCase()}`;
+}
 
+function logVisibleLine(line) {
+  if ($("logNoise").checked && LOG_NOISE.some((re) => re.test(line))) return false;
   const filter = ($("logFilter").value || "").trim().toLowerCase();
-  const html = [];
-  for (const raw of lines) {
-    if (filter && !raw.toLowerCase().includes(filter)) continue;
-    const line = esc(raw);
-    let cls = "log-line";
-    if (LOG_PATTERN.test(raw)) cls += " log-err";
-    else if (LOG_WARN_PATTERN.test(raw)) cls += " log-warn";
-    html.push(`<div class="${cls}">${line || "&nbsp;"}</div>`);
-  }
-  view.innerHTML = html.join("") || '<div class="log-empty">没有匹配的日志</div>';
+  return !filter || line.toLowerCase().includes(filter);
+}
 
-  if (keepTop) view.scrollTop = view.scrollHeight;
+function makeLogLine(raw) {
+  const el = document.createElement("div");
+  el.className = "log-line";
+  const text = raw.replace(ANSI_RE, "");
+  if (LOG_ERROR.test(text)) el.classList.add("log-err");
+  else if (LOG_WARN.test(text)) el.classList.add("log-warn");
+  el.textContent = text || "\u00a0";
+  return el;
+}
+
+function updateLogStatus() {
+  const hidden = state.logHidden ? ` · 过滤 ${state.logHidden} 行` : "";
+  const time = state.logUpdated ? state.logUpdated.toLocaleTimeString() : "-";
+  $("logStatus").textContent = `${state.logShown || 0} 行${hidden} · ${time}`;
+}
+
+function renderLogsFull(lines) {
+  const view = $("logView");
+  const frag = document.createDocumentFragment();
+  let hidden = 0;
+  for (const line of lines) {
+    if (!logVisibleLine(line)) {
+      hidden++;
+      continue;
+    }
+    frag.appendChild(makeLogLine(line));
+  }
+  view.replaceChildren(frag);
+  if (!view.childElementCount) {
+    const empty = document.createElement("div");
+    empty.className = "log-empty";
+    empty.textContent =
+      $("logNoise").checked || ($("logFilter").value || "").trim()
+        ? "没有匹配的日志（可关闭过滤或噪声隐藏）"
+        : "暂无日志";
+    view.appendChild(empty);
+  }
+  state.logKey = logKey();
+  state.logHidden = hidden;
+  state.logShown = view.querySelector(".log-empty") ? 0 : view.childElementCount;
+  if ($("logFollow").checked) view.scrollTop = view.scrollHeight;
+  updateLogStatus();
+}
+
+function appendLogLines(lines) {
+  const view = $("logView");
+  const frag = document.createDocumentFragment();
+  let hidden = 0;
+  for (const line of lines) {
+    if (!logVisibleLine(line)) {
+      hidden++;
+      continue;
+    }
+    frag.appendChild(makeLogLine(line));
+  }
+  if (frag.childElementCount) {
+    const emptyEl = view.querySelector(".log-empty");
+    if (emptyEl) emptyEl.remove();
+    view.appendChild(frag);
+  }
+  state.logHidden += hidden;
+  if ($("logFollow").checked) {
+    view.scrollTop = view.scrollHeight;
+    // 跟随模式下限制 DOM 行数，避免长时间运行后越来越卡
+    while (view.childElementCount > LOG_MAX_DOM) view.firstElementChild.remove();
+  }
+  state.logShown = view.querySelector(".log-empty") ? 0 : view.childElementCount;
+  updateLogStatus();
+}
+
+// 计算新内容相对旧内容的“尾部追加”部分，日志窗口整体右移也能识别
+function appendedLines(prev, next) {
+  if (!prev.length) return next;
+  if (next.length < prev.length) return null;
+  const maxShift = next.length - prev.length;
+  for (let shift = 0; shift <= maxShift; shift++) {
+    if (next[shift] !== prev[0]) continue;
+    let match = true;
+    for (let i = 1; i < prev.length; i++) {
+      if (next[shift + i] !== prev[i]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return next.slice(shift + prev.length);
+  }
+  return null;
 }
 
 async function loadLogs() {
-  if (state.view !== "logs") return;
-  const target = state.logTarget;
+  if (state.view !== "logs" || state.logLoading) return;
+  state.logLoading = true;
   try {
-    const data = await api(`/api/service/logs?target=${encodeURIComponent(target)}&lines=${$("logLines").value}`);
+    const data = await api(
+      `/api/service/logs?target=${encodeURIComponent(state.logTarget)}&lines=${$("logLines").value}`
+    );
     const raw = data.logs || "";
-    // 内容未变化时不做任何 DOM 操作，避免闪烁与滚动跳动
     if (raw === state.logRaw) {
-      $("logStatus").textContent = `${state.logRaw ? state.logRaw.split("\n").length : 0} 行 · 无变化`;
+      updateLogStatus();
       return;
     }
+    const lines = raw.split("\n");
+    const appended = state.logKey === logKey() ? appendedLines(state.logPrev, lines) : null;
     state.logRaw = raw;
+    state.logPrev = lines;
     state.logUpdated = new Date();
-    renderLogs(raw.split("\n"));
-    $("logStatus").textContent = `${$("logView").childElementCount} 行 · ${state.logUpdated.toLocaleTimeString()}`;
+
+    if (appended !== null) appendLogLines(appended);
+    else renderLogsFull(lines);
   } catch (err) {
     if (!(err instanceof AuthError)) {
       $("logView").innerHTML = `<div class="log-line log-err">读取失败：${esc(err.message)}</div>`;
     }
+  } finally {
+    state.logLoading = false;
   }
 }
 
-function startLogAuto() {
-  stopLogAuto();
-  state.logTimer = setInterval(() => {
-    if (document.visibilityState === "visible") loadLogs();
-  }, 5000);
+function rerenderLogs() {
+  if (!state.logPrev.length) return;
+  renderLogsFull(state.logPrev);
 }
 
-function stopLogAuto() {
-  if (state.logTimer) clearInterval(state.logTimer);
-  state.logTimer = null;
-}
+
 
 /* ------------------------------------------------------------ scanner actions */
 function findApp(id) {
@@ -1653,13 +1759,16 @@ function bindEvents() {
 
   $("logLines").addEventListener("change", () => {
     state.logRaw = "";
+    state.logPrev = [];
+    state.logKey = null;
     loadLogs();
   });
   let filterTimer = null;
   $("logFilter").addEventListener("input", () => {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(() => renderLogs(state.logRaw.split("\n")), 150);
+    filterTimer = setTimeout(rerenderLogs, 180);
   });
+  $("logNoise").addEventListener("change", rerenderLogs);
   $("logFollow").addEventListener("change", () => {
     if ($("logFollow").checked) {
       const view = $("logView");
