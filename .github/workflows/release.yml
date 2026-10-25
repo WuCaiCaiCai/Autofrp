@@ -8,163 +8,98 @@ on:
     inputs:
       tag:
         description: "Release tag (e.g. v1.0.0)"
-        required: false
+        required: true
         default: "v1.0.0"
 
 permissions:
   contents: write
 
+env:
+  GO_VERSION: "1.22.x"
+  NFPM_VERSION: "v2.48.0"
+
 jobs:
   release:
-    name: Build Multi-Arch Binaries & Linux Packages
+    name: Build deb / rpm / apk
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run tests before release
+      - name: Resolve release tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ "$TAG" != v* ]]; then
+            echo "::error::标签必须以 v 开头（如 v1.0.0），当前为: $TAG"
+            exit 1
+          fi
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Test before release
         run: |
           bash -n autof.sh
-          go test -v ./...
+          go vet ./...
+          go test ./...
 
-      - name: Install rpmbuild for Fedora/RHEL package generation
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
-
-      - name: Build static binaries and packages (Debian/Deepin .deb, Fedora .rpm, Arch PKGBUILD)
+      - name: Install nfpm
         run: |
-          RAW_TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
-          if [[ "$RAW_TAG" != v* ]]; then
-            RAW_TAG="v1.0.0"
-          fi
-          VER="${RAW_TAG#v}"
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@${{ env.NFPM_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/nfpm" --version
+
+      - name: Build binaries and packages (amd64 / arm64)
+        run: |
+          set -euo pipefail
           mkdir -p dist
+          for ARCH in amd64 arm64; do
+            echo "==> Building autof_linux_${ARCH} (v${VERSION})"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
+              go build -trimpath -ldflags="-s -w" -o "dist/autof_linux_${ARCH}" ./cmd/autof
 
-          ARCHS=("amd64" "arm64" "arm" "386" "riscv64" "loong64")
-          for ARCH in "${ARCHS[@]}"; do
-            GOARM_VAL=""
-            [ "$ARCH" = "arm" ] && GOARM_VAL="7"
-
-            BIN_NAME="autof_linux_${ARCH}"
-            echo "==> Building ${BIN_NAME} (v${VER})..."
-            CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" GOARM="$GOARM_VAL" \
-              go build -trimpath -ldflags="-s -w" -o "dist/${BIN_NAME}" ./cmd/autof
-
-            # 打包通用 tar.gz
-            STAGE_DIR="dist/stage_${ARCH}"
-            mkdir -p "$STAGE_DIR"
-            cp "dist/${BIN_NAME}" "${STAGE_DIR}/autof"
-            cp autof.sh README.md LICENSE "$STAGE_DIR/"
-            tar -czf "dist/autof_${VER}_linux_${ARCH}.tar.gz" -C "$STAGE_DIR" autof autof.sh README.md LICENSE
-            rm -rf "$STAGE_DIR"
-
-            # 构建 Debian / Ubuntu / Deepin / UOS 原生 .deb 安装包 (amd64 / arm64 / armhf / loong64)
-            DEB_ARCH=""
-            case "$ARCH" in
-              amd64) DEB_ARCH="amd64" ;;
-              arm64) DEB_ARCH="arm64" ;;
-              arm)   DEB_ARCH="armhf" ;;
-              386)   DEB_ARCH="i386" ;;
-              riscv64) DEB_ARCH="riscv64" ;;
-              loong64) DEB_ARCH="loong64" ;;
-            esac
-            if [ -n "$DEB_ARCH" ]; then
-              DEB_ROOT="dist/deb_${DEB_ARCH}"
-              mkdir -p "${DEB_ROOT}/DEBIAN" "${DEB_ROOT}/usr/local/bin"
-              install -m 0755 "dist/${BIN_NAME}" "${DEB_ROOT}/usr/local/bin/autof"
-              cat > "${DEB_ROOT}/DEBIAN/control" <<EOF
-          Package: autof
-          Version: ${VER}
-          Section: net
-          Priority: optional
-          Architecture: ${DEB_ARCH}
-          Maintainer: Wu Cai <https://github.com/WuCaiCaiCai/Autofrp>
-          Description: Autofrp - FRP (frps/frpc) & Caddy reverse proxy controller with WebUI
-           Supports Debian, Ubuntu, Deepin, UOS and derivative distributions.
-          EOF
-              dpkg-deb --build --root-owner-group "${DEB_ROOT}" "dist/autof_${VER}_linux_${DEB_ARCH}.deb"
-              rm -rf "${DEB_ROOT}"
-            fi
-
-            # 构建 Fedora / RHEL / Rocky / AlmaLinux 原生 .rpm 安装包 (x86_64 / aarch64)
-            RPM_ARCH=""
-            case "$ARCH" in
-              amd64) RPM_ARCH="x86_64" ;;
-              arm64) RPM_ARCH="aarch64" ;;
-            esac
-            if [ -n "$RPM_ARCH" ] && command -v rpmbuild >/dev/null 2>&1; then
-              RPM_TOP="$(pwd)/dist/rpm_${RPM_ARCH}"
-              mkdir -p "${RPM_TOP}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-              cp "dist/${BIN_NAME}" "${RPM_TOP}/SOURCES/autof"
-              cat > "${RPM_TOP}/SPECS/autof.spec" <<EOF
-          Name:           autof
-          Version:        ${VER}
-          Release:        1
-          Summary:        Autofrp - FRP (frps/frpc) and Caddy reverse proxy controller with WebUI
-          License:        MIT
-          URL:            https://github.com/WuCaiCaiCai/Autofrp
-          BuildArch:      ${RPM_ARCH}
-          %define _build_id_links none
-
-          %description
-          Unified FRP (frps/frpc) and Caddy reverse proxy management tool with embedded WebUI.
-
-          %install
-          mkdir -p %{buildroot}/usr/local/bin
-          install -m 0755 %{_sourcedir}/autof %{buildroot}/usr/local/bin/autof
-
-          %files
-          /usr/local/bin/autof
-          EOF
-              rpmbuild --define "_topdir ${RPM_TOP}" --target "${RPM_ARCH}" -bb "${RPM_TOP}/SPECS/autof.spec"
-              find "${RPM_TOP}/RPMS" -name "*.rpm" -exec mv {} dist/ \;
-              rm -rf "${RPM_TOP}"
-            fi
+            cp "dist/autof_linux_${ARCH}" "dist/autof"
+            for FORMAT in deb rpm apk; do
+              NFPM_ARCH="$ARCH" NFPM_VERSION="$VERSION" \
+                nfpm package -f nfpm.yaml -p "$FORMAT" \
+                -t "dist/autof_${VERSION}_linux_${ARCH}.${FORMAT}"
+            done
+            rm -f "dist/autof"
           done
 
-          # 生成 Arch Linux / Manjaro 的 PKGBUILD
-          cat > dist/PKGBUILD <<EOF
-          # Maintainer: Wu Cai <https://github.com/WuCaiCaiCai/Autofrp>
-          pkgname=autof-bin
-          pkgver=${VER}
-          pkgrel=1
-          pkgdesc="FRP (frps/frpc) & Caddy reverse proxy controller with embedded WebUI"
-          arch=('x86_64' 'aarch64' 'armv7h' 'riscv64' 'loong64')
-          url="https://github.com/WuCaiCaiCai/Autofrp"
-          license=('MIT')
-          provides=('autof')
-          conflicts=('autof')
-          source_x86_64=("autof_${VER}_linux_amd64::https://github.com/WuCaiCaiCai/Autofrp/releases/download/v${VER}/autof_linux_amd64")
-          source_aarch64=("autof_${VER}_linux_arm64::https://github.com/WuCaiCaiCai/Autofrp/releases/download/v${VER}/autof_linux_arm64")
-          sha256sums_x86_64=('SKIP')
-          sha256sums_aarch64=('SKIP')
+          cd dist
+          sha256sum autof_linux_amd64 autof_linux_arm64 *.deb *.rpm *.apk > checksums.txt
+          echo "--- 产物清单 ---"
+          ls -lh
 
-          package() {
-            install -Dm755 "\${srcdir}/autof_${VER}_linux_"* "\${pkgdir}/usr/local/bin/autof"
-          }
-          EOF
-
-          cp autof.sh dist/autof.sh
-          (cd dist && sha256sum autof_linux_* *.tar.gz *.deb *.rpm autof.sh > checksums.txt)
-          ls -lh dist/
+      - name: Verify package metadata
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+          for f in dist/*.deb; do echo "== $f"; dpkg-deb -I "$f" | grep -E "Package:|Version:|Architecture:"; done
+          for f in dist/*.rpm; do echo "== $f"; rpm -qip "$f" | grep -E "Name|Version|Architecture"; done
+          for f in dist/*.apk; do echo "== $f"; tar -xzOf "$f" .PKGINFO | grep -E "pkgname|pkgver|arch"; done
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Autofrp ${{ env.RELEASE_TAG }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            dist/autof_linux_*
-            dist/*.tar.gz
+            dist/autof_linux_amd64
+            dist/autof_linux_arm64
             dist/*.deb
             dist/*.rpm
-            dist/PKGBUILD
-            dist/autof.sh
+            dist/*.apk
             dist/checksums.txt

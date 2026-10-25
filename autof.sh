@@ -73,11 +73,7 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
-    armv7l|armv7|armhf) echo "arm" ;;
-    i386|i686) echo "386" ;;
-    riscv64) echo "riscv64" ;;
-    loongarch64|loong64) echo "loong64" ;;
-    *) die "不支持的 CPU 架构: $(uname -m)" ;;
+    *) return 1 ;;
   esac
 }
 
@@ -93,6 +89,22 @@ fix_selinux_context() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || pwd)"
 
+# 校验目标二进制确实是本版本的 Autofrp（防止误用旧版 Bash 脚本或其他文件）
+verify_binary() {
+  local bin="$1"
+  [ -f "$bin" ] || return 1
+  chmod +x "$bin" 2>/dev/null || true
+  "$bin" version 2>/dev/null | grep -q "Autofrp v${VERSION}" || return 1
+  return 0
+}
+
+# 读取当前已安装版本（旧版 Bash 脚本没有 version 子命令，会返回空）
+installed_version() {
+  local bin="$TARGET_BIN"
+  [ -x "$bin" ] || return 1
+  "$bin" version 2>/dev/null | sed -n 's/^Autofrp v\([^ ]*\).*$/\1/p' | head -1
+}
+
 build_from_local_source() {
   local out_bin="$1"
   if [ -f "$SCRIPT_DIR/go.mod" ] && [ -f "$SCRIPT_DIR/cmd/autof/main.go" ] && command -v go >/dev/null 2>&1; then
@@ -104,23 +116,22 @@ build_from_local_source() {
 }
 
 download_release_binary() {
-  local out_bin="$1"
-  local arch
-  arch="$(detect_arch)"
+  local out_bin="$1" arch
+  if ! arch="$(detect_arch)"; then
+    warn "预编译包仅提供 amd64 / arm64 架构，当前为: $(uname -m)"
+    return 1
+  fi
   local asset="autof_linux_${arch}"
-  local raw_url="https://github.com/${REPO}/releases/latest/download/${asset}"
+  local raw_url="https://github.com/${REPO}/releases/download/v${VERSION}/${asset}"
   local urls=(
     "$raw_url"
     "https://ghfast.top/$raw_url"
     "https://gh-proxy.com/$raw_url"
   )
   for u in "${urls[@]}"; do
-    info "正在拉取预编译二进制 ($arch): $u"
-    if curl -fsSL --connect-timeout 8 --max-time 120 -o "$out_bin" "$u" 2>/dev/null; then
-      chmod 0755 "$out_bin"
-      if "$out_bin" version >/dev/null 2>&1; then
-        return 0
-      fi
+    info "正在拉取预编译二进制 (${arch}): $u"
+    if curl -fsSL --connect-timeout 8 --max-time 120 -o "$out_bin" "$u" 2>/dev/null && verify_binary "$out_bin"; then
+      return 0
     fi
   done
   return 1
@@ -136,24 +147,51 @@ ensure_binary() {
     mkdir -p /usr/local/bin 2>/dev/null || true
   fi
 
+  # 已安装且版本一致时直接复用（可用 AUTOF_FORCE_REINSTALL=1 强制重装）
+  local cur_ver=""
+  cur_ver="$(installed_version || true)"
+  if [ "${AUTOF_FORCE_REINSTALL:-0}" != "1" ] && [ "$cur_ver" = "$VERSION" ]; then
+    printf '%s' "$dest"
+    return 0
+  fi
+  [ -n "$cur_ver" ] && info "检测到已安装 v${cur_ver}，准备更新到 v${VERSION} ..."
+
   local tmp_bin
   tmp_bin="$(mktemp)"
-  if build_from_local_source "$tmp_bin" || download_release_binary "$tmp_bin"; then
+  local built=0
+  if build_from_local_source "$tmp_bin" && verify_binary "$tmp_bin"; then
+    built=1
+  elif download_release_binary "$tmp_bin" && verify_binary "$tmp_bin"; then
+    built=1
+  fi
+
+  if [ "$built" = "1" ]; then
     install -m 0755 "$tmp_bin" "$dest"
     rm -f "$tmp_bin"
     fix_selinux_context "$dest"
-    ok "$APP 已安装就绪: $dest"
+    ok "$APP v${VERSION} 已安装: $dest"
     printf '%s' "$dest"
     return 0
   fi
   rm -f "$tmp_bin"
 
-  if [ -x "$dest" ]; then
-    fix_selinux_context "$dest"
+  # 兜底：目标位置已有正确版本可继续使用
+  if verify_binary "$dest"; then
+    warn "下载/编译失败，但 $dest 已是 v${VERSION}，继续使用现有程序"
     printf '%s' "$dest"
     return 0
   fi
-  die "无法下载或编译 $APP 二进制文件，请确认网络畅通或已安装 Go 1.22+"
+
+  if [ -n "$cur_ver" ]; then
+    die "获取 Autofrp v${VERSION} 失败。当前 $TARGET_BIN 是旧版本 v${cur_ver}，为避免执行旧逻辑已拒绝使用。
+  请检查服务器网络后重试；若确认要清理旧版本，请执行：
+    sudo rm -f $TARGET_BIN
+  然后重新运行本脚本。"
+  fi
+
+  die "获取 Autofrp v${VERSION} 失败（未找到 v${VERSION} 的发布产物或网络不可达）。
+  请检查: https://github.com/${REPO}/releases/tag/v${VERSION}
+  如在国内服务器，可尝试设置镜像环境变量后重试，或改用 deb/rpm/apk 安装包。"
 }
 
 main() {
