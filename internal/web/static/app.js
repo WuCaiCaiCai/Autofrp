@@ -143,11 +143,20 @@ function anyModalOpen() {
 
 let confirmResolver = null;
 
-function confirmDialog({ title = "确认操作", text = "", okText = "确认", danger = true }) {
+function confirmDialog({ title = "确认操作", text = "", okText = "确认", danger = true, extra = null }) {
   $("confirmTitle").textContent = title;
   $("confirmText").textContent = text;
   $("confirmOk").textContent = okText;
   $("confirmOk").className = `btn ${danger ? "btn-danger" : "btn-primary"}`;
+  const extraWrap = $("confirmExtraWrap");
+  if (extra) {
+    extraWrap.hidden = false;
+    $("confirmExtra").checked = extra.checked !== false;
+    $("confirmExtraLabel").textContent = extra.label;
+  } else {
+    extraWrap.hidden = true;
+    $("confirmExtra").checked = false;
+  }
   openModal("confirmModal");
   return new Promise((resolve) => {
     confirmResolver = resolve;
@@ -225,7 +234,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.1.0"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.1.1"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -692,7 +701,7 @@ function renderCerts() {
       : "";
     const path = e.targetDir || info.certPath || "-";
     rows.push(`<tr>
-      <td data-label="名称"><div class="cell-main">${esc(e.name)}</div><div class="cell-sub mono">${esc(domains)}</div>${err}</td>
+      <td data-label="名称"><div class="cell-main">${esc(e.name)}</div><div class="cell-sub mono">${esc(domains)} · ${esc(e.id)}</div>${err}</td>
       <td data-label="签发者">${esc(info.issuer || "-")}</td>
       <td data-label="到期">${expiryBadge(days)}</td>
       <td data-label="来源">${source} ${auto}</td>
@@ -797,16 +806,18 @@ async function renewCert(id, btn) {
 
 async function deleteCert(id, btn) {
   const ok = await confirmDialog({
-    title: "移除证书配置",
-    text: "仅从面板移除托管记录，已签发的证书文件会保留在磁盘上。确定继续？",
-    okText: "移除",
+    title: "删除证书",
+    text: "将从面板移除托管记录，并停止自动续期。若证书仍被 Caddy 规则引用，需要先调整规则。",
+    okText: "删除",
+    extra: { label: "同时删除证书文件与私钥（不可恢复）", checked: true },
   });
   if (!ok) return;
+  const purge = $("confirmExtra").checked ? "1" : "0";
   await withBusy(btn, async () => {
     try {
-      state.data = await api(`/api/cert?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      state.data = await api(`/api/cert?id=${encodeURIComponent(id)}&purge=${purge}`, { method: "DELETE" });
       render();
-      toast("已移除托管记录", "ok");
+      toast(purge === "1" ? "证书已删除" : "已移除托管记录（保留文件）", "ok");
     } catch (err) {
       if (!(err instanceof AuthError)) toast(err.message, "err");
     }
@@ -992,6 +1003,7 @@ function renderSystem() {
   $("webTLSListen").value = pick(cfg, "web.tlsListen", "");
   $("webTLSCert").value = pick(cfg, "web.tlsCertFile", "");
   $("webTLSKey").value = pick(cfg, "web.tlsKeyFile", "");
+  renderPanelCertOptions(cfg, d.stateDir || "/etc/autof");
 
   const sys = d.systemInfo || {};
   const svcs = d.services || {};
@@ -999,13 +1011,73 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.1.0")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.1.1")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
   $("sysInfoKv").innerHTML = rows
     .map(([k, v]) => `<div class="kv-row"><span>${esc(k)}</span><span class="kv-value">${v}</span></div>`)
     .join("");
+}
+
+function renderPanelCertOptions(cfg, stateDir) {
+  const entries = pick(cfg, "caddy.certificates", []) || [];
+  const sel = $("webTLSManaged");
+  sel.innerHTML =
+    entries
+      .map(
+        (e) =>
+          `<option value="${esc(e.id)}">${esc(e.name)}（${esc((e.domains || []).join(", "))}）</option>`
+      )
+      .join("") || `<option value="">暂无托管证书</option>`;
+
+  const certPath = pick(cfg, "web.tlsCertFile", "");
+  const keyPath = pick(cfg, "web.tlsKeyFile", "");
+  const selfCert = `${stateDir}/tls/panel.crt`;
+
+  let source = "manual";
+  let managedId = "";
+  if (!certPath && !keyPath) {
+    source = "self";
+  } else if (certPath === selfCert) {
+    source = "self";
+  } else {
+    const matched = entries.find(
+      (e) => `${e.targetDir}/fullchain.pem` === certPath && `${e.targetDir}/privkey.pem` === keyPath
+    );
+    if (matched) {
+      source = "managed";
+      managedId = matched.id;
+    }
+  }
+  $("webTLSCertSource").value = source;
+  if (managedId) sel.value = managedId;
+  applyPanelCertSource(false);
+}
+
+function applyPanelCertSource(overwrite) {
+  const source = $("webTLSCertSource").value;
+  const stateDir = (state.data && state.data.stateDir) || "/etc/autof";
+  $("webTLSManagedWrap").hidden = source !== "managed";
+  const manual = source === "manual";
+  $("webTLSCert").readOnly = !manual;
+  $("webTLSKey").readOnly = !manual;
+
+  if (source === "self") {
+    $("webTLSCert").value = `${stateDir}/tls/panel.crt`;
+    $("webTLSKey").value = `${stateDir}/tls/panel.key`;
+  } else if (source === "managed") {
+    const entries = pick(state.data.config, "caddy.certificates", []) || [];
+    const entry = entries.find((e) => e.id === $("webTLSManaged").value) || entries[0];
+    if (entry) {
+      $("webTLSManaged").value = entry.id;
+      $("webTLSCert").value = `${entry.targetDir}/fullchain.pem`;
+      $("webTLSKey").value = `${entry.targetDir}/privkey.pem`;
+    }
+  } else if (overwrite) {
+    $("webTLSCert").value = "";
+    $("webTLSKey").value = "";
+  }
 }
 
 function statusInline(svc) {
@@ -1295,6 +1367,18 @@ function openCaddyModal(rule) {
   $("caddyRuleSkipVerify").checked = rule ? !!rule.skipTlsVerify : false;
   $("caddyRuleEnabled").checked = rule ? rule.enabled !== false : true;
   $("caddyRuleExtra").value = rule ? rule.extraDirectives || "" : "";
+  const managed = pick(state.data.config, "caddy.certificates", []) || [];
+  $("caddyCertPicker").innerHTML =
+    `<option value="">手动填写</option>` +
+    managed
+      .map(
+        (e) => `<option value="${esc(e.id)}">${esc(e.name)}（${esc((e.domains || []).join(", "))}）</option>`
+      )
+      .join("");
+  if (rule && rule.certFile) {
+    const m = managed.find((e) => `${e.targetDir}/fullchain.pem` === rule.certFile);
+    if (m) $("caddyCertPicker").value = m.id;
+  }
   syncCaddyCertFields();
 
   const cfg = state.data.config || {};
@@ -1325,9 +1409,16 @@ function applyQuickTunnel(key) {
   if (!key) return;
   const cfg = state.data.config || {};
   if (key === "self") {
-    const port = String(pick(cfg, "web.listenAddr", "0.0.0.0:7500")).split(":").pop();
+    const tlsListen = pick(cfg, "web.tlsListen", "");
+    const httpPort = String(pick(cfg, "web.listenAddr", "0.0.0.0:7500")).split(":").pop();
     $("caddyRuleName").value = "Autofrp 控制台";
-    $("caddyRuleUpstream").value = `127.0.0.1:${port}`;
+    if (tlsListen) {
+      const tlsPort = String(tlsListen).split(":").pop();
+      $("caddyRuleUpstream").value = `https://127.0.0.1:${tlsPort}`;
+      $("caddyRuleSkipVerify").checked = true;
+    } else {
+      $("caddyRuleUpstream").value = `http://127.0.0.1:${httpPort}`;
+    }
     return;
   }
   const [scope, idx] = key.split(":");
@@ -2024,6 +2115,16 @@ function bindEvents() {
   $("btnSaveWeb").addEventListener("click", (e) => saveWeb(e.currentTarget));
   $("btnRandomPwd").addEventListener("click", () => {
     $("webPassword").value = randomToken(14);
+  });
+  $("webTLSCertSource").addEventListener("change", () => applyPanelCertSource(true));
+  $("webTLSManaged").addEventListener("change", () => applyPanelCertSource(true));
+  $("caddyCertPicker").addEventListener("change", () => {
+    const id = $("caddyCertPicker").value;
+    if (!id) return;
+    const entry = (pick(state.data.config, "caddy.certificates", []) || []).find((e) => e.id === id);
+    if (!entry) return;
+    $("caddyRuleCertFile").value = `${entry.targetDir}/fullchain.pem`;
+    $("caddyRuleKeyFile").value = `${entry.targetDir}/privkey.pem`;
   });
   $("btnGenTLS").addEventListener("click", async (e) => {
     await withBusy(e.currentTarget, async () => {

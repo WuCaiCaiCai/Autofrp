@@ -776,20 +776,96 @@ func handleCertCLI(store *config.Store, args []string) error {
 	switch sub {
 	case "list":
 		infos := cert.MatchManaged(cert.Discover(store), cfg.Caddy.Certificates)
-		if len(infos) == 0 {
+		if len(cfg.Caddy.Certificates) == 0 && len(infos) == 0 {
 			fmt.Println("暂无证书。请在 WebUI「证书管理」中申请泛域名证书。")
 			return nil
 		}
+		for _, e := range cfg.Caddy.Certificates {
+			info := cert.ReadInfo(filepath.Join(e.TargetDir, "fullchain.pem"), filepath.Join(e.TargetDir, "privkey.pem"), "autof")
+			fmt.Printf("  [托管] %-16s %-40s %3d 天  %s\n", e.ID, strings.Join(e.Domains, ","), info.DaysLeft, e.TargetDir)
+		}
 		for _, i := range infos {
-			owner := "外部"
 			if i.ManagedID != "" {
-				owner = "托管"
+				continue
 			}
-			fmt.Printf("  [%s] %-40s %3d 天  %s\n", owner, strings.Join(i.Domains, ","), i.DaysLeft, i.CertPath)
+			src := "外部"
+			if i.Source == "caddy" {
+				src = "Caddy"
+			} else if i.Source == "panel" {
+				src = "面板"
+			}
+			fmt.Printf("  [%s] %-16s %-40s %3d 天  %s\n", src, "-", strings.Join(i.Domains, ","), i.DaysLeft, i.CertPath)
 		}
 		return nil
+
+	case "delete", "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("用法: autof cert delete <证书ID或域名> [--keep-files] [--force]")
+		}
+		needle := args[1]
+		keepFiles := false
+		force := false
+		for _, a := range args[2:] {
+			switch a {
+			case "--keep-files":
+				keepFiles = true
+			case "--force":
+				force = true
+			}
+		}
+		idx := -1
+		for i := range cfg.Caddy.Certificates {
+			e := cfg.Caddy.Certificates[i]
+			if e.ID == needle {
+				idx = i
+				break
+			}
+			for _, d := range e.Domains {
+				if d == needle || strings.TrimPrefix(d, "*.") == needle {
+					idx = i
+					break
+				}
+			}
+			if idx >= 0 {
+				break
+			}
+		}
+		if idx < 0 {
+			return fmt.Errorf("未找到证书: %s（可用 autof cert list 查看）", needle)
+		}
+		entry := cfg.Caddy.Certificates[idx]
+		if !keepFiles && !force {
+			for _, rule := range cfg.Caddy.Rules {
+				if rule.CertFile != "" && strings.HasPrefix(filepath.Clean(rule.CertFile), filepath.Clean(entry.TargetDir)+string(os.PathSeparator)) {
+					return fmt.Errorf("该证书仍被 Caddy 规则 [%s] 引用，请先修改规则或加 --force", rule.Listen)
+				}
+			}
+		}
+		if !confirm(fmt.Sprintf("删除证书 %s（%s）？", strings.Join(entry.Domains, ","), entry.TargetDir)) {
+			return fmt.Errorf("已取消")
+		}
+		if !keepFiles {
+			if err := cert.PurgeFiles(store, entry); err != nil {
+				return err
+			}
+		}
+		_ = cert.Remove(store, entry)
+		_ = store.Update(func(c *config.Config) error {
+			kept := make([]config.CertEntry, 0, len(c.Caddy.Certificates))
+			for _, e := range c.Caddy.Certificates {
+				if e.ID != entry.ID {
+					kept = append(kept, e)
+				}
+			}
+			c.Caddy.Certificates = kept
+			return nil
+		})
+		fmt.Printf("%s[+]%s 已删除证书 %s（文件%s）\n", cGreen, cReset, strings.Join(entry.Domains, ","),
+			map[bool]string{true: "已保留", false: "已删除"}[keepFiles])
+		return nil
+
 	default:
-		return fmt.Errorf("用法: autof cert list")
+		return fmt.Errorf("用法: autof cert list | autof cert delete <ID或域名> [--keep-files]")
 	}
 }
 
@@ -814,6 +890,7 @@ func printUsage(stateDir string) {
   autof backup [文件]            导出配置/证书备份（--no-secrets 脱敏）
   autof restore <文件>           从备份恢复（--keep-creds 保留当前面板密码）
   autof cert list                查看证书与剩余天数
+  autof cert delete <ID|域名>    删除证书（--keep-files 保留文件，--force 强制）
   autof uninstall                完全卸载
 
 配置目录: %s

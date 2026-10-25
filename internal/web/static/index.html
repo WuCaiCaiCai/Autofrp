@@ -62,7 +62,7 @@
         <div>
           <div class="brand-name">
             Autofrp
-            <span class="badge badge-info" id="appVersion">v1.1.0</span>
+            <span class="badge badge-info" id="appVersion">v1.1.1</span>
           </div>
           <div class="brand-tag">穿透 · 反代 · 一体化</div>
         </div>
@@ -654,6 +654,18 @@
                   <input type="text" id="webTLSListen" class="mono" placeholder="留空关闭，如 0.0.0.0:7443" />
                 </div>
                 <div class="field">
+                  <label for="webTLSCertSource">证书来源</label>
+                  <select id="webTLSCertSource">
+                    <option value="self">面板自签证书</option>
+                    <option value="managed">证书管理中的证书</option>
+                    <option value="manual">手动填写路径</option>
+                  </select>
+                </div>
+                <div class="field" id="webTLSManagedWrap" hidden>
+                  <label for="webTLSManaged">选择托管证书</label>
+                  <select id="webTLSManaged"></select>
+                </div>
+                <div class="field">
                   <label for="webTLSCert">证书链路径</label>
                   <input type="text" id="webTLSCert" class="mono" placeholder="/etc/autof/tls/panel.crt" />
                 </div>
@@ -949,6 +961,10 @@
 
         <div class="form-grid" id="caddyCertFields" hidden>
           <div class="field">
+            <label for="caddyCertPicker">使用证书管理中的证书</label>
+            <select id="caddyCertPicker"></select>
+          </div>
+          <div class="field">
             <label for="caddyRuleCertFile">证书链路径</label>
             <input type="text" id="caddyRuleCertFile" class="mono" placeholder="/etc/autof/certs/example.com/fullchain.pem" />
           </div>
@@ -1243,6 +1259,10 @@
       </div>
       <div class="modal-body">
         <p id="confirmText" style="font-size:13.5px;color:var(--text-soft)"></p>
+        <label class="check" id="confirmExtraWrap" hidden style="margin-top:10px">
+          <input type="checkbox" id="confirmExtra" />
+          <span id="confirmExtraLabel"></span>
+        </label>
       </div>
       <div class="modal-foot">
         <button class="btn btn-ghost" id="confirmCancel">取消</button>
