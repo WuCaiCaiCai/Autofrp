@@ -55,40 +55,26 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/WuCaiCaiCai/Auto
 
 > 密码也可随时用 `sudo autof pwd` 查看或重置；只想要终端界面则执行 `sudo bash autof.sh`（不带 `web-install`）。
 
-### 方式二：原生安装包
+### 方式二：直接下载静态二进制
 
-> 仅提供 `amd64` 与 `arm64`；资源命名固定，升级只需重跑同一条命令。完整清单见 [Releases](https://github.com/WuCaiCaiCai/Autofrp/releases/latest)。
-
-**Debian / Ubuntu / Deepin / UOS**（`.deb`）
+> Release **只发布静态二进制**（`amd64` / `arm64`）与 `checksums.txt`，不提供 deb/rpm/apk 打包；所有发行版通用。
 
 ```bash
-curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_linux_amd64.deb
-sudo dpkg -i autof_linux_amd64.deb
-```
-
-**Fedora / RHEL / CentOS / Rocky / AlmaLinux**（`.rpm`）
-
-```bash
-sudo dnf install -y https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_linux_amd64.rpm
-```
-
-**Alpine Linux**（`.apk`，未签名需 `--allow-untrusted`）
-
-```bash
-curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_linux_amd64.apk
-sudo apk add --allow-untrusted ./autof_linux_amd64.apk
-```
-
-<sub>arm64 机器把文件名中的 `amd64` 换成 `arm64`。安装包只包含 Autofrp 本体，`frps` / `frpc` / `caddy` 在首次启动时按需自动下载。</sub>
-
-**其他发行版**（Arch / openSUSE / 通用 Linux）：直接下载静态二进制。
-
-```bash
+# amd64（arm64 机器把文件名换成 autof_linux_arm64）
 sudo curl -fsSL -o /usr/local/bin/autof \
   https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_linux_amd64
 sudo chmod +x /usr/local/bin/autof
 sudo autof web-install
 ```
+
+如需校验完整性：
+
+```bash
+curl -fsSL https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/checksums.txt
+sha256sum /usr/local/bin/autof
+```
+
+<sub>`frps` / `frpc` / `caddy` 不随包分发，在首次启动时按需自动下载。</sub>
 
 ### 方式三：源码编译
 

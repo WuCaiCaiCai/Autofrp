@@ -191,7 +191,7 @@ ensure_binary() {
 
   die "获取 Autofrp v${VERSION} 失败（未找到 v${VERSION} 的发布产物或网络不可达）。
   请检查: https://github.com/${REPO}/releases/tag/v${VERSION}
-  如在国内服务器，可尝试设置镜像环境变量后重试，或改用 deb/rpm/apk 安装包。"
+  如在国内服务器，可尝试设置镜像地址后重试，或手动下载静态二进制：https://github.com/WuCaiCaiCai/Autofrp/releases"
 }
 
 main() {

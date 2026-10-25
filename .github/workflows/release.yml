@@ -16,11 +16,10 @@ permissions:
 
 env:
   GO_VERSION: "1.22.x"
-  NFPM_VERSION: "v2.48.0"
 
 jobs:
   release:
-    name: Build deb / rpm / apk
+    name: Build static binaries
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -52,13 +51,7 @@ jobs:
           go vet ./...
           go test ./...
 
-      - name: Install nfpm
-        run: |
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@${{ env.NFPM_VERSION }}
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          "$(go env GOPATH)/bin/nfpm" --version
-
-      - name: Build binaries and packages (amd64 / arm64)
+      - name: Build binaries (amd64 / arm64)
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -66,28 +59,20 @@ jobs:
             echo "==> Building autof_linux_${ARCH} (v${VERSION})"
             CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
               go build -trimpath -ldflags="-s -w" -o "dist/autof_linux_${ARCH}" ./cmd/autof
-
-            cp "dist/autof_linux_${ARCH}" "dist/autof"
-            for FORMAT in deb rpm apk; do
-              NFPM_ARCH="$ARCH" NFPM_VERSION="$VERSION" \
-                nfpm package -f nfpm.yaml -p "$FORMAT" \
-                -t "dist/autof_linux_${ARCH}.${FORMAT}"
-            done
-            rm -f "dist/autof"
           done
-
           cd dist
-          sha256sum autof_linux_amd64 autof_linux_arm64 *.deb *.rpm *.apk > checksums.txt
+          sha256sum autof_linux_amd64 autof_linux_arm64 > checksums.txt
           echo "--- 产物清单 ---"
           ls -lh
 
-      - name: Verify package metadata
+      - name: Verify binaries
         run: |
           set -euo pipefail
-          sudo apt-get update -qq && sudo apt-get install -y -qq rpm
-          for f in dist/*.deb; do echo "== $f"; dpkg-deb -I "$f" | grep -E "Package:|Version:|Architecture:"; done
-          for f in dist/*.rpm; do echo "== $f"; rpm -qip "$f" | grep -E "Name|Version|Architecture"; done
-          for f in dist/*.apk; do echo "== $f"; tar -xzOf "$f" .PKGINFO | grep -E "pkgname|pkgver|arch"; done
+          file dist/autof_linux_amd64 dist/autof_linux_arm64
+          # amd64 可直接执行验证版本与核心命令
+          chmod +x dist/autof_linux_amd64
+          AUTOF_STATE_DIR="$(mktemp -d)" ./dist/autof_linux_amd64 version
+          AUTOF_STATE_DIR="$(mktemp -d)" ./dist/autof_linux_amd64 help > /dev/null
 
       - name: Prune stale assets from existing release
         env:
@@ -111,7 +96,4 @@ jobs:
           files: |
             dist/autof_linux_amd64
             dist/autof_linux_arm64
-            dist/*.deb
-            dist/*.rpm
-            dist/*.apk
             dist/checksums.txt
