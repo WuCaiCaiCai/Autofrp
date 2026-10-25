@@ -16,6 +16,7 @@ import (
 	"github.com/WuCaiCaiCai/Autofrp/internal/cert"
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 	"github.com/WuCaiCaiCai/Autofrp/internal/frp"
+	"github.com/WuCaiCaiCai/Autofrp/internal/netenv"
 	"github.com/WuCaiCaiCai/Autofrp/internal/systemd"
 )
 
@@ -354,6 +355,14 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// 恢复后按当前机器重新探测网络，避免面板继续显示源机器的 IP
+	netCfg := s.store.Get().Network
+	netenv.DetectAndApply(&netCfg)
+	_ = s.store.Update(func(c *config.Config) error {
+		c.Network = netCfg
+		return nil
+	})
 
 	// 重新生成配置并按需重载服务（不触碰 Docker / 系统服务）
 	_ = frp.WriteConfigs(s.store)

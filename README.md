@@ -46,7 +46,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/WuCaiCaiCai/Auto
 脚本会自动识别发行版、安装基础依赖、下载匹配架构的静态二进制到 `/usr/local/bin/autof`，并注册 `autof` 后台服务。完成后终端直接输出访问信息：
 
 ```text
-[+] autof v1.1.5 已安装: /usr/local/bin/autof
+[+] autof v1.1.6 已安装: /usr/local/bin/autof
 [+] Autofrp WebUI 后台服务已启动！
     访问地址（按需选择）:
       本机     http://127.0.0.1:7500
