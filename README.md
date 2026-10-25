@@ -1,4 +1,4 @@
-# Autofrp v2.0
+# Autofrp v1.0
 
 **远程 VPS** 与 **本地服务器** 一体化的 **内网穿透 (`frps` / `frpc`) + Caddy 快速反代** 管理工具。  
 采用 **Go 单二进制 + 内嵌响应式 WebUI** 架构，零运行时依赖，全面适配 **Debian / Ubuntu / Deepin (深度) / UOS / Fedora / RHEL / Rocky / Arch Linux / Alpine** 等主流 Linux 发行版。
@@ -58,12 +58,12 @@ GitHub Releases 自动构建全架构静态二进制（`amd64` / `arm64` / `armv
 
 - **Debian / Ubuntu / Deepin (深度) / UOS**：
   ```bash
-  curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_2.0.0_linux_amd64.deb
-  sudo dpkg -i autof_2.0.0_linux_amd64.deb
+  curl -fsSLO https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof_1.0.0_linux_amd64.deb
+  sudo dpkg -i autof_1.0.0_linux_amd64.deb
   ```
 - **Fedora / RHEL / CentOS / Rocky / AlmaLinux**：
   ```bash
-  sudo dnf install -y https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof-2.0.0-1.x86_64.rpm
+  sudo dnf install -y https://github.com/WuCaiCaiCai/Autofrp/releases/latest/download/autof-1.0.0-1.x86_64.rpm
   ```
 - **Arch Linux / Manjaro**：
   ```bash

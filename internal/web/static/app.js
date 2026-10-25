@@ -56,7 +56,7 @@ function renderAll(data) {
   const svcs = data.services;
   const sys = data.systemInfo || {};
 
-  document.getElementById("appVersion").textContent = "v" + (cfg.version || "2.0.0");
+  document.getElementById("appVersion").textContent = "v" + (cfg.version || "1.0.0");
   if (sys.prettyName) {
     document.getElementById("distroBadge").textContent = `${sys.prettyName} (${sys.arch || ""})`;
   }
