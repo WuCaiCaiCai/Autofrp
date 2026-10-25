@@ -42,13 +42,16 @@ func Run(args []string) error {
 
 	// 若尚未探测过网络，首次自动探测
 	cfg := store.Get()
-	if cfg.Network.PublicIPv4 == "" && cfg.Network.PublicIPv6 == "" && cfg.Network.LocalIPv4 == "" {
+	// 配置可能来自备份恢复或整目录拷贝：本机 IP 不属于当前网卡时重新探测
+	if !netenv.HasLocalIP(cfg.Network.LocalIPv4) ||
+		(cfg.Network.PublicIPv4 == "" && cfg.Network.PublicIPv6 == "") {
 		netCfg := cfg.Network
 		netenv.DetectAndApply(&netCfg)
 		_ = store.Update(func(c *config.Config) error {
 			c.Network = netCfg
 			return nil
 		})
+		cfg = store.Get()
 	}
 
 	if len(args) == 0 {
@@ -225,17 +228,16 @@ func runWebDaemon(store *config.Store, listenOverride string) error {
 	_ = caddy.WriteAndApply(store, false)
 	cfg := store.Get()
 	// 首次启动时后台异步探测网络，避免阻塞 WebUI 首屏
-	if cfg.Network.PublicIPv4 == "" && cfg.Network.PublicIPv6 == "" && cfg.Network.LocalIPv4 == "" {
-		go func() {
-			netCfg := cfg.Network
-			netenv.DetectAndApply(&netCfg)
-			_ = store.Update(func(c *config.Config) error {
-				c.Network = netCfg
-				return nil
-			})
-			_ = frp.WriteConfigs(store)
-		}()
-	}
+	// 后台刷新网络信息，换机/换网后自动纠正旧的公网与局域网地址
+	go func() {
+		netCfg := store.Get().Network
+		netenv.DetectAndApply(&netCfg)
+		_ = store.Update(func(c *config.Config) error {
+			c.Network = netCfg
+			return nil
+		})
+		_ = frp.WriteConfigs(store)
+	}()
 	addr := cfg.Web.ListenAddr
 	if listenOverride != "" {
 		addr = listenOverride
@@ -277,7 +279,17 @@ func installWebService(store *config.Store) error {
 	if err := systemd.Control("autof", "restart", exe, []string{"web"}, store.StateDir(), nil); err != nil {
 		return err
 	}
+	// 安装/升级后若地址不属于当前网卡则立即重新探测，避免沿用备份里的旧地址
 	cfg := store.Get()
+	if !netenv.HasLocalIP(cfg.Network.LocalIPv4) {
+		netCfg := cfg.Network
+		netenv.DetectAndApply(&netCfg)
+		_ = store.Update(func(c *config.Config) error {
+			c.Network = netCfg
+			return nil
+		})
+		cfg = store.Get()
+	}
 	fmt.Printf("%s[+]%s Autofrp WebUI 后台服务已启动！\n", cGreen, cReset)
 	printPanelURLs(cfg)
 	fmt.Printf("    登录用户名: %s%s%s\n", cBold, cfg.Web.Username, cReset)
@@ -772,6 +784,15 @@ func handleRestoreCLI(store *config.Store, args []string) error {
 	if err != nil {
 		return err
 	}
+	// 恢复后按当前机器重新探测网络，避免显示源机器的 IP
+	netCfg := store.Get().Network
+	netenv.DetectAndApply(&netCfg)
+	_ = store.Update(func(c *config.Config) error {
+		c.Network = netCfg
+		return nil
+	})
+	restored := store.Get()
+	cfg = &restored
 	_ = frp.WriteConfigs(store)
 	_ = caddy.WriteAndApply(store, false)
 	fmt.Printf("%s[+]%s 恢复完成（版本 %s，%d 条穿透规则）\n", cGreen, cReset, cfg.Version, len(cfg.Frps.Services))

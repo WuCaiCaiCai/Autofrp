@@ -181,3 +181,21 @@ func isPrivateOrCGNAT(ip net.IP) bool {
 	}
 	return false
 }
+
+// HasLocalIP 判断给定地址是否属于本机网卡（含回环），用于识别迁移/恢复后的过期网络信息
+func HasLocalIP(ipStr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	v4, v6 := localGlobalIPs()
+	for _, s := range append(v4, v6...) {
+		if p := net.ParseIP(s); p != nil && p.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
