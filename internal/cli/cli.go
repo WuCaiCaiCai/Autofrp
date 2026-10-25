@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -170,6 +171,55 @@ func Run(args []string) error {
 	}
 }
 
+type accessURL struct {
+	Label string
+	URL   string
+}
+
+// panelAccessURLs 返回面板可用的访问地址（本机 / 局域网 / 公网），自动去重并处理 IPv6 括号
+func panelAccessURLs(cfg config.Config) []accessURL {
+	port := "7500"
+	if idx := strings.LastIndex(cfg.Web.ListenAddr, ":"); idx != -1 {
+		port = cfg.Web.ListenAddr[idx+1:]
+	}
+	if port == "" {
+		port = "7500"
+	}
+
+	var out []accessURL
+	seen := map[string]bool{}
+	add := func(label, host string) {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			return
+		}
+		u := "http://" + net.JoinHostPort(host, port)
+		if seen[u] {
+			return
+		}
+		seen[u] = true
+		out = append(out, accessURL{Label: label, URL: u})
+	}
+
+	add("本机", "127.0.0.1")
+	add("局域网", cfg.Network.LocalIPv4)
+	if cfg.Network.IPPref == "6" {
+		add("公网", cfg.Network.PublicIPv6)
+		add("公网", cfg.Network.PublicIPv4)
+	} else {
+		add("公网", cfg.Network.PublicIPv4)
+		add("公网", cfg.Network.PublicIPv6)
+	}
+	return out
+}
+
+func printPanelURLs(cfg config.Config) {
+	fmt.Printf("    访问地址（按需选择）:\n")
+	for _, u := range panelAccessURLs(cfg) {
+		fmt.Printf("      %-6s %s%s%s\n", u.Label, cBold, u.URL, cReset)
+	}
+}
+
 func runWebDaemon(store *config.Store, listenOverride string) error {
 	_ = frp.WriteConfigs(store)
 	_ = caddy.WriteAndApply(store, false)
@@ -190,19 +240,10 @@ func runWebDaemon(store *config.Store, listenOverride string) error {
 	if listenOverride != "" {
 		addr = listenOverride
 	}
-	displayHost := cfg.PublicAddr()
-	if displayHost == "" {
-		displayHost = cfg.Network.LocalIPv4
-	}
-	if displayHost == "" {
-		displayHost = "127.0.0.1"
-	}
-	port := "7500"
-	if idx := strings.LastIndex(addr, ":"); idx != -1 {
-		port = addr[idx+1:]
-	}
+	displayCfg := cfg
+	displayCfg.Web.ListenAddr = addr
 	fmt.Printf("%s[*]%s Autofrp WebUI 已启动:\n", cCyan, cReset)
-	fmt.Printf("    访问地址: %shttp://%s:%s%s\n", cBold, displayHost, port, cReset)
+	printPanelURLs(displayCfg)
 	fmt.Printf("    用 户 名: %s%s%s\n", cBold, cfg.Web.Username, cReset)
 	fmt.Printf("    密    码: %s%s%s\n", cBold, cfg.Web.Password, cReset)
 	srv := server.New(store)
@@ -237,19 +278,8 @@ func installWebService(store *config.Store) error {
 		return err
 	}
 	cfg := store.Get()
-	host := cfg.PublicAddr()
-	if host == "" {
-		host = cfg.Network.LocalIPv4
-	}
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	port := "7500"
-	if idx := strings.LastIndex(cfg.Web.ListenAddr, ":"); idx != -1 {
-		port = cfg.Web.ListenAddr[idx+1:]
-	}
 	fmt.Printf("%s[+]%s Autofrp WebUI 后台服务已启动！\n", cGreen, cReset)
-	fmt.Printf("    浏览器访问: %shttp://%s:%s%s\n", cCyan+cBold, host, port, cReset)
+	printPanelURLs(cfg)
 	fmt.Printf("    登录用户名: %s%s%s\n", cBold, cfg.Web.Username, cReset)
 	fmt.Printf("    登录密  码: %s%s%s\n", cBold, cfg.Web.Password, cReset)
 	return nil
@@ -276,16 +306,11 @@ func printDashboardHeader(store *config.Store) {
 	fmt.Printf("  frpc (本地客户端) : %s  (目标 %s:%d)\n", formatStatus(stFrpc), emptyOr(cfg.Frpc.ServerAddr, "未配置"), cfg.Frpc.ServerPort)
 	fmt.Printf("  Caddy (反向代理)  : %s  (规则 %d 条)\n", formatStatus(stCaddy), len(cfg.Caddy.Rules))
 
-	host := cfg.PublicAddr()
-	if host == "" {
-		host = emptyOr(cfg.Network.LocalIPv4, "127.0.0.1")
+	fmt.Printf("  WebUI 控制台      : %s\n", formatStatus(stWeb))
+	for _, u := range panelAccessURLs(cfg) {
+		fmt.Printf("    %-8s %s%s%s\n", u.Label, cBold, u.URL, cReset)
 	}
-	port := "7500"
-	if idx := strings.LastIndex(cfg.Web.ListenAddr, ":"); idx != -1 {
-		port = cfg.Web.ListenAddr[idx+1:]
-	}
-	fmt.Printf("  WebUI 控制台      : %s  http://%s:%s  (账号 %s / 密码 %s)\n",
-		formatStatus(stWeb), host, port, cfg.Web.Username, cfg.Web.Password)
+	fmt.Printf("  WebUI 账号 / 密码 : %s / %s\n", cfg.Web.Username, cfg.Web.Password)
 	fmt.Printf("%s%s%s\n", cCyan, rule, cReset)
 }
 
