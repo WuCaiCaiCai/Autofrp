@@ -2,15 +2,12 @@ package server
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/WuCaiCaiCai/Autofrp/internal/config"
 )
@@ -180,36 +177,5 @@ func TestLegacyConfigInheritance(t *testing.T) {
 	}
 	if !store3.Get().SetupCompleted {
 		t.Fatal("缺少 setupCompleted 字段的旧 config.json 应视为已完成初始化")
-	}
-}
-
-func TestGenerateSelfSignedCert(t *testing.T) {
-	dir := t.TempDir()
-	certPath := filepath.Join(dir, "tls", "panel.crt")
-	keyPath := filepath.Join(dir, "tls", "panel.key")
-
-	if err := GenerateSelfSignedCert(certPath, keyPath, []string{"localhost", "127.0.0.1", "203.0.113.9", "panel.example.com"}); err != nil {
-		t.Fatalf("GenerateSelfSignedCert error: %v", err)
-	}
-	if _, err := os.Stat(keyPath); err != nil {
-		t.Fatalf("私钥未生成: %v", err)
-	}
-	pemData, err := os.ReadFile(certPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	block, _ := pem.Decode(pemData)
-	if block == nil {
-		t.Fatal("证书 PEM 解析失败")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cert.IPAddresses) < 2 || len(cert.DNSNames) < 2 {
-		t.Fatalf("SAN 不完整: ips=%v dns=%v", cert.IPAddresses, cert.DNSNames)
-	}
-	if cert.NotAfter.Before(cert.NotBefore.Add(700 * 24 * time.Hour)) {
-		t.Fatalf("证书有效期异常: %v ~ %v", cert.NotBefore, cert.NotAfter)
 	}
 }

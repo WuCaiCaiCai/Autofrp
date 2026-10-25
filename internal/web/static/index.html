@@ -62,7 +62,7 @@
         <div>
           <div class="brand-name">
             Autofrp
-            <span class="badge badge-info" id="appVersion">v1.1.2</span>
+            <span class="badge badge-info" id="appVersion">v1.1.3</span>
           </div>
           <div class="brand-tag">穿透 · 反代 · 一体化</div>
         </div>
@@ -618,7 +618,7 @@
               <div class="section-head">
                 <div>
                   <h2 class="section-title">面板与安全</h2>
-                  <p class="section-desc">修改监听地址或登录凭据，监听地址变更后需重启 autof 服务。</p>
+                  <p class="section-desc">修改监听地址或登录凭据；需要 HTTPS 时用「Caddy 反代」把域名反代到本面板即可。</p>
                 </div>
               </div>
               <div class="form-grid" style="margin-top:12px">
@@ -641,44 +641,6 @@
                   <label>访问控制</label>
                   <label class="check"><input type="checkbox" id="webAuthEnabled" />启用密码保护</label>
                 </div>
-              </div>
-
-              <hr class="divider" style="margin:16px 0 12px" />
-              <div class="row-between" style="margin-bottom:10px">
-                <strong style="font-size:13px">HTTPS 访问（可选）</strong>
-                <span class="hint">直连加密或 Cloudflare Full 回源；也可交给 Caddy 自动证书</span>
-              </div>
-              <div class="form-grid">
-                <div class="field">
-                  <label for="webTLSListen">HTTPS 监听地址</label>
-                  <input type="text" id="webTLSListen" class="mono" placeholder="留空关闭，如 0.0.0.0:7443" />
-                </div>
-                <div class="field">
-                  <label for="webTLSCertSource">证书来源</label>
-                  <select id="webTLSCertSource">
-                    <option value="self">面板自签证书</option>
-                    <option value="managed">证书管理中的证书</option>
-                    <option value="manual">手动填写路径</option>
-                  </select>
-                </div>
-                <div class="field" id="webTLSManagedWrap" hidden>
-                  <label for="webTLSManaged">选择托管证书</label>
-                  <select id="webTLSManaged"></select>
-                </div>
-                <div class="field">
-                  <label for="webTLSCert">证书链路径</label>
-                  <input type="text" id="webTLSCert" class="mono" placeholder="/etc/autof/tls/panel.crt" />
-                </div>
-                <div class="field">
-                  <label for="webTLSKey">私钥路径</label>
-                  <input type="text" id="webTLSKey" class="mono" placeholder="/etc/autof/tls/panel.key" />
-                </div>
-              </div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn btn-sm" id="btnGenTLS">
-                  <svg class="i" width="14" height="14" aria-hidden="true"><use href="#i-shield"/></svg>生成自签证书
-                </button>
-                <span class="hint">自签证书浏览器会提示风险，适合 Cloudflare Full 或内网；公网直连建议用 Caddy / Let's Encrypt。</span>
               </div>
 
               <div class="row" style="margin-top:14px">

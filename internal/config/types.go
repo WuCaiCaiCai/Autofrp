@@ -2,7 +2,7 @@ package config
 
 const (
 	AppName    = "autof"
-	AppVersion = "1.1.2"
+	AppVersion = "1.1.3"
 )
 
 // Config 保存 Autofrp 的完整配置与状态（远程 VPS 与本地服务器通用）
@@ -30,9 +30,6 @@ type NetConfig struct {
 // WebConfig 保存内置 WebUI 面板设置
 type WebConfig struct {
 	ListenAddr  string `json:"listenAddr"`  // HTTP 监听地址，默认 "0.0.0.0:7500"
-	TLSListen   string `json:"tlsListen"`   // HTTPS 监听地址（留空则不启用），如 "0.0.0.0:7443"
-	TLSCertFile string `json:"tlsCertFile"` // HTTPS 证书链路径
-	TLSKeyFile  string `json:"tlsKeyFile"`  // HTTPS 私钥路径
 	Username    string `json:"username"`    // 默认 "admin"
 	Password    string `json:"password"`    // 登录密码
 	AuthEnabled bool   `json:"authEnabled"` // 是否启用登录鉴权

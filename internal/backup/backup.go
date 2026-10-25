@@ -331,9 +331,6 @@ func Restore(store *config.Store, archive string, keepCreds bool) (*config.Confi
 			c.Web.Username = current.Web.Username
 			c.Web.Password = current.Web.Password
 			c.Web.ListenAddr = current.Web.ListenAddr
-			c.Web.TLSListen = current.Web.TLSListen
-			c.Web.TLSCertFile = current.Web.TLSCertFile
-			c.Web.TLSKeyFile = current.Web.TLSKeyFile
 			return nil
 		})
 	}

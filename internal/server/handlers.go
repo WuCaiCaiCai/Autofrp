@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -502,9 +500,6 @@ func (s *Server) handleSystemWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		ListenAddr  string `json:"listenAddr"`
-		TLSListen   string `json:"tlsListen"`
-		TLSCertFile string `json:"tlsCertFile"`
-		TLSKeyFile  string `json:"tlsKeyFile"`
 		Username    string `json:"username"`
 		Password    string `json:"password"`
 		AuthEnabled bool   `json:"authEnabled"`
@@ -514,29 +509,10 @@ func (s *Server) handleSystemWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tlsListen := strings.TrimSpace(req.TLSListen)
-	certFile := strings.TrimSpace(req.TLSCertFile)
-	keyFile := strings.TrimSpace(req.TLSKeyFile)
-	if tlsListen != "" {
-		if certFile == "" || keyFile == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "启用 HTTPS 监听时必须填写证书与私钥路径"})
-			return
-		}
-		for _, f := range []string{certFile, keyFile} {
-			if st, err := os.Stat(f); err != nil || st.IsDir() {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "证书或私钥文件不存在: " + f})
-				return
-			}
-		}
-	}
-
 	_ = s.store.Update(func(c *config.Config) error {
 		if strings.TrimSpace(req.ListenAddr) != "" {
 			c.Web.ListenAddr = strings.TrimSpace(req.ListenAddr)
 		}
-		c.Web.TLSListen = tlsListen
-		c.Web.TLSCertFile = certFile
-		c.Web.TLSKeyFile = keyFile
 		if strings.TrimSpace(req.Username) != "" {
 			c.Web.Username = strings.TrimSpace(req.Username)
 		}
@@ -725,53 +701,6 @@ func (s *Server) handleTakeoverExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := s.buildOverviewResponse()
 	resp["takeoverResult"] = res
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// handleGenerateSelfSignedTLS 为面板生成自签名证书，并写入 HTTPS 配置（重启面板后生效）
-func (s *Server) handleGenerateSelfSignedTLS(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
-		return
-	}
-	cfg := s.store.Get()
-	tlsDir := filepath.Join(s.store.StateDir(), "tls")
-	certFile := filepath.Join(tlsDir, "panel.crt")
-	keyFile := filepath.Join(tlsDir, "panel.key")
-
-	hosts := []string{"localhost", "127.0.0.1", "::1"}
-	if h := cfg.PublicAddr(); h != "" {
-		hosts = append(hosts, h)
-	}
-	if cfg.Network.LocalIPv4 != "" {
-		hosts = append(hosts, cfg.Network.LocalIPv4)
-	}
-	if hn, err := os.Hostname(); err == nil && hn != "" {
-		hosts = append(hosts, hn)
-	}
-
-	if err := GenerateSelfSignedCert(certFile, keyFile, hosts); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "生成自签证书失败: " + err.Error()})
-		return
-	}
-
-	listen := cfg.Web.TLSListen
-	if listen == "" {
-		listen = "0.0.0.0:7443"
-	}
-	_ = s.store.Update(func(c *config.Config) error {
-		c.Web.TLSListen = listen
-		c.Web.TLSCertFile = certFile
-		c.Web.TLSKeyFile = keyFile
-		return nil
-	})
-
-	resp := s.buildOverviewResponse()
-	resp["tlsGenerated"] = map[string]string{
-		"listen":   listen,
-		"certFile": certFile,
-		"keyFile":  keyFile,
-	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

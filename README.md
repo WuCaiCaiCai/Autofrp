@@ -224,27 +224,20 @@ sudo autof cert list                          # 查看证书与剩余天数
 - **不会** `docker rm`、不会修改 restart 策略、不会编辑 compose 文件，同文件里的其他服务不受影响；
 - 面板会显示 compose 项目、服务名与文件路径；如需永久移除，请自行编辑 compose 后执行 `docker compose up -d`。
 
-## 面板 HTTPS 与 Cloudflare
+## 面板 HTTPS（用 Caddy 反代）与 Cloudflare
 
-WebUI 默认是 `http://IP:7500`，三种方式可以加上 HTTPS：
+面板本身只监听 HTTP（默认 `0.0.0.0:7500`），HTTPS 统一交给 Caddy 处理：
 
-| 方案 | 做法 | 适用 |
-| --- | --- | --- |
-| **Caddy 反代（推荐）** | 在「Caddy 反代」里点「反代本面板」，填域名即可自动签发/续期证书 | 有域名、80/443 可用 |
-| **面板自带 HTTPS** | 「日志与设置 → HTTPS 访问」填监听地址 + 证书/私钥，或点「生成自签证书」 | 无 Caddy、内网、Cloudflare 回源 |
-| **Cloudflare 代理** | 面板开 443/7443 → CF 的 SSL/TLS 设为 `Full` 或 `Full (strict)` | 不想暴露源站 IP |
-
-**面板自带 HTTPS 操作**：
-
-1. 「日志与设置 → 面板与安全 → HTTPS 访问」点 **生成自签证书**（写入 `/etc/autof/tls/panel.crt|key`，SAN 含公网 IP、内网 IP、主机名，有效期 825 天）。
-2. 点 **重启面板服务**，然后用 `https://你的IP:7443` 访问（浏览器会提示自签风险，属正常）。
-3. 想用受信任证书：把 Cloudflare 后台的 **Origin Certificate** 或 Caddy/LE 签发的 `fullchain.pem` + `privkey.pem` 路径填进去即可。
+1. 「Caddy 反代 → 反代本面板」，填一个域名（如 `panel.example.com`）。
+2. 证书模式选「自动公网 HTTPS」（80/443 可用）或「DNS API 证书」（NAT / 无 80 端口）。
+3. 保存后访问 `https://panel.example.com`，证书由 Caddy 自动续期。
+4. 建议安全组只放行 80/443，把 7500 限制为内网或仅本机访问。
 
 **Cloudflare 注意事项**：
 
-- 开了橙色云朵后，`HTTP-01` / `TLS-ALPN-01` 验证会被 CF 代理拦截；域名证书请用 **DNS-01**（本工具已内置 Cloudflare Token 支持）或直接用 **CF 源证书**。
-- SSL/TLS 模式建议 `Full (strict)`；用自签证书时选 `Full`。
-- 面板端口记得在安全组/防火墙放行，并建议叠加 CF Access 或只允许 Cloudflare IP 段访问。
+- 开了橙色云朵后，`HTTP-01` / `TLS-ALPN-01` 会被 CF 代理拦截，域名证书请用 **DNS-01**（本工具已内置 Cloudflare Token）或手动上传 **CF 源证书**到 Caddy 规则（证书模式选「自定义证书」）。
+- SSL/TLS 模式建议 `Full` 或 `Full (strict)`。
+- 可叠加 CF Access，只允许指定邮箱/域名访问面板。
 
 ## CLI 命令
 
