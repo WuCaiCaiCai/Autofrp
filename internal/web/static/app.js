@@ -28,7 +28,7 @@ const VIEW_META = {
   certs: { title: "证书管理", sub: "泛域名证书申请、续期与导出" },
   scanner: { title: "原服务迁移", sub: "探测 Nginx Proxy Manager / Nginx / 原版 Caddy 与 frp" },
   logs: { title: "服务日志", sub: "frps / frpc / Caddy / 面板运行日志" },
-  settings: { title: "设置", sub: "面板安全、HTTPS 访问与运行信息" },
+  settings: { title: "设置", sub: "面板安全、备份与运行信息" },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -234,7 +234,7 @@ function render() {
   const cfg = d.config || {};
   state.role = cfg.nodeRole || "both";
 
-  $("appVersion").textContent = `v${cfg.version || "1.1.2"}`;
+  $("appVersion").textContent = `v${cfg.version || "1.1.3"}`;
   const sys = d.systemInfo || {};
   $("sidebarDistro").textContent = `${sys.prettyName || "Linux"} · ${sys.arch || ""}`.trim();
   $("sidebarStateDir").textContent = d.stateDir || "/etc/autof";
@@ -1000,10 +1000,7 @@ function renderSystem() {
   $("webListenAddr").value = pick(cfg, "web.listenAddr", "0.0.0.0:7500");
   $("webUsername").value = pick(cfg, "web.username", "admin");
   $("webAuthEnabled").checked = pick(cfg, "web.authEnabled", true) !== false;
-  $("webTLSListen").value = pick(cfg, "web.tlsListen", "");
-  $("webTLSCert").value = pick(cfg, "web.tlsCertFile", "");
-  $("webTLSKey").value = pick(cfg, "web.tlsKeyFile", "");
-  renderPanelCertOptions(cfg, d.stateDir || "/etc/autof");
+
 
   const sys = d.systemInfo || {};
   const svcs = d.services || {};
@@ -1011,73 +1008,13 @@ function renderSystem() {
     ["系统", `${esc(sys.prettyName || "Linux")}`],
     ["架构 / 初始化", `${esc(sys.arch || "-")} · ${esc(sys.initSystem || "-")}`],
     ["包管理器", esc(sys.pkgManager || "-")],
-    ["Autofrp", `v${esc(cfg.version || "1.1.2")} · 面板 ${statusInline(svcs.autof)}`],
+    ["Autofrp", `v${esc(cfg.version || "1.1.3")} · 面板 ${statusInline(svcs.autof)}`],
     ["配置目录", `<span class="mono">${esc(d.stateDir || "/etc/autof")}</span>`],
     ["初始化状态", cfg.setupCompleted ? "已完成" : "待初始化"],
   ];
   $("sysInfoKv").innerHTML = rows
     .map(([k, v]) => `<div class="kv-row"><span>${esc(k)}</span><span class="kv-value">${v}</span></div>`)
     .join("");
-}
-
-function renderPanelCertOptions(cfg, stateDir) {
-  const entries = pick(cfg, "caddy.certificates", []) || [];
-  const sel = $("webTLSManaged");
-  sel.innerHTML =
-    entries
-      .map(
-        (e) =>
-          `<option value="${esc(e.id)}">${esc(e.name)}（${esc((e.domains || []).join(", "))}）</option>`
-      )
-      .join("") || `<option value="">暂无托管证书</option>`;
-
-  const certPath = pick(cfg, "web.tlsCertFile", "");
-  const keyPath = pick(cfg, "web.tlsKeyFile", "");
-  const selfCert = `${stateDir}/tls/panel.crt`;
-
-  let source = "manual";
-  let managedId = "";
-  if (!certPath && !keyPath) {
-    source = "self";
-  } else if (certPath === selfCert) {
-    source = "self";
-  } else {
-    const matched = entries.find(
-      (e) => `${e.targetDir}/fullchain.pem` === certPath && `${e.targetDir}/privkey.pem` === keyPath
-    );
-    if (matched) {
-      source = "managed";
-      managedId = matched.id;
-    }
-  }
-  $("webTLSCertSource").value = source;
-  if (managedId) sel.value = managedId;
-  applyPanelCertSource(false);
-}
-
-function applyPanelCertSource(overwrite) {
-  const source = $("webTLSCertSource").value;
-  const stateDir = (state.data && state.data.stateDir) || "/etc/autof";
-  $("webTLSManagedWrap").hidden = source !== "managed";
-  const manual = source === "manual";
-  $("webTLSCert").readOnly = !manual;
-  $("webTLSKey").readOnly = !manual;
-
-  if (source === "self") {
-    $("webTLSCert").value = `${stateDir}/tls/panel.crt`;
-    $("webTLSKey").value = `${stateDir}/tls/panel.key`;
-  } else if (source === "managed") {
-    const entries = pick(state.data.config, "caddy.certificates", []) || [];
-    const entry = entries.find((e) => e.id === $("webTLSManaged").value) || entries[0];
-    if (entry) {
-      $("webTLSManaged").value = entry.id;
-      $("webTLSCert").value = `${entry.targetDir}/fullchain.pem`;
-      $("webTLSKey").value = `${entry.targetDir}/privkey.pem`;
-    }
-  } else if (overwrite) {
-    $("webTLSCert").value = "";
-    $("webTLSKey").value = "";
-  }
 }
 
 function statusInline(svc) {
@@ -1242,25 +1179,16 @@ async function saveWeb(btn) {
   const pwd = $("webPassword").value;
   const payload = {
     listenAddr: $("webListenAddr").value.trim(),
-    tlsListen: $("webTLSListen").value.trim(),
-    tlsCertFile: $("webTLSCert").value.trim(),
-    tlsKeyFile: $("webTLSKey").value.trim(),
     username: $("webUsername").value.trim(),
     password: pwd,
     authEnabled: $("webAuthEnabled").checked,
   };
-  const tlsWas = pick(state.data.config, "web.tlsListen", "");
-  const tlsNow = payload.tlsListen;
   await withBusy(btn, async () => {
     try {
       state.data = await api("/api/system/web", { method: "POST", body: JSON.stringify(payload) });
       render();
       $("webPassword").value = "";
-      if (tlsWas !== tlsNow) {
-        toast("面板设置已保存，HTTPS 监听变更需重启面板服务后生效", "ok");
-      } else {
-        toast("面板设置已保存", "ok");
-      }
+      toast("面板设置已保存", "ok");
     } catch (err) {
       if (!(err instanceof AuthError)) toast(err.message, "err");
     }
@@ -1409,16 +1337,9 @@ function applyQuickTunnel(key) {
   if (!key) return;
   const cfg = state.data.config || {};
   if (key === "self") {
-    const tlsListen = pick(cfg, "web.tlsListen", "");
     const httpPort = String(pick(cfg, "web.listenAddr", "0.0.0.0:7500")).split(":").pop();
     $("caddyRuleName").value = "Autofrp 控制台";
-    if (tlsListen) {
-      const tlsPort = String(tlsListen).split(":").pop();
-      $("caddyRuleUpstream").value = `https://127.0.0.1:${tlsPort}`;
-      $("caddyRuleSkipVerify").checked = true;
-    } else {
-      $("caddyRuleUpstream").value = `http://127.0.0.1:${httpPort}`;
-    }
+    $("caddyRuleUpstream").value = `http://127.0.0.1:${httpPort}`;
     return;
   }
   const [scope, idx] = key.split(":");
@@ -2116,8 +2037,6 @@ function bindEvents() {
   $("btnRandomPwd").addEventListener("click", () => {
     $("webPassword").value = randomToken(14);
   });
-  $("webTLSCertSource").addEventListener("change", () => applyPanelCertSource(true));
-  $("webTLSManaged").addEventListener("change", () => applyPanelCertSource(true));
   $("caddyCertPicker").addEventListener("change", () => {
     const id = $("caddyCertPicker").value;
     if (!id) return;
@@ -2125,18 +2044,6 @@ function bindEvents() {
     if (!entry) return;
     $("caddyRuleCertFile").value = `${entry.targetDir}/fullchain.pem`;
     $("caddyRuleKeyFile").value = `${entry.targetDir}/privkey.pem`;
-  });
-  $("btnGenTLS").addEventListener("click", async (e) => {
-    await withBusy(e.currentTarget, async () => {
-      try {
-        state.data = await api("/api/system/tls/generate", { method: "POST" });
-        render();
-        const info = state.data.tlsGenerated || {};
-        toast(`自签证书已生成，HTTPS 监听 ${info.listen || ""}，重启面板后生效`, "ok");
-      } catch (err) {
-        if (!(err instanceof AuthError)) toast(err.message, "err");
-      }
-    });
   });
   $("btnReloadWeb").addEventListener("click", async (e) => {
     const ok = await confirmDialog({
