@@ -34,6 +34,8 @@ func ArchName() string {
 		return "386"
 	case "riscv64":
 		return "riscv64"
+	case "loong64":
+		return "loong64"
 	default:
 		return ""
 	}

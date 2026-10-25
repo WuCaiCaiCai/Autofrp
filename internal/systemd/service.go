@@ -23,7 +23,7 @@ type ServiceStatus struct {
 	Enabled    bool   `json:"enabled"`
 }
 
-// HasSystemd 检测当前系统是否运行 systemd
+// HasSystemd 检测当前系统是否运行 systemd (Debian / Deepin / Fedora / Arch 等主流发行版)
 func HasSystemd() bool {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return false
@@ -32,11 +32,35 @@ func HasSystemd() bool {
 	return err == nil && st.IsDir()
 }
 
+// HasOpenRC 检测当前系统是否运行 OpenRC (Alpine / Gentoo 等)
+func HasOpenRC() bool {
+	if _, err := exec.LookPath("rc-service"); err != nil {
+		return false
+	}
+	st, err := os.Stat("/run/openrc")
+	return err == nil && st.IsDir()
+}
+
+// FixSELinuxContext 修复 Fedora / RHEL / CentOS 等开启 SELinux 系统的二进制安全上下文，避免 systemd 203/EXEC 权限报错
+func FixSELinuxContext(binPath string) {
+	if binPath == "" {
+		return
+	}
+	if restorecon, err := exec.LookPath("restorecon"); err == nil {
+		_ = exec.Command(restorecon, "-F", binPath).Run()
+		return
+	}
+	if chcon, err := exec.LookPath("chcon"); err == nil {
+		_ = exec.Command(chcon, "-t", "bin_t", binPath).Run()
+	}
+}
+
 // FindBinary 查找组件可执行文件路径
 func FindBinary(name string) string {
 	candidates := []string{
 		filepath.Join("/usr/local/bin", name),
 		filepath.Join("/usr/bin", name),
+		filepath.Join("/bin", name),
 	}
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() && st.Mode()&0111 != 0 {
@@ -101,9 +125,13 @@ func QueryStatus(name string) ServiceStatus {
 				st.PID = pid
 			}
 		}
+	} else if HasOpenRC() {
+		if err := exec.Command("rc-service", name, "status").Run(); err == nil {
+			st.Running = true
+		}
 	}
 
-	if !st.Running {
+	if !st.Running || st.PID == 0 {
 		if pid := findProcessPID(name, bin); pid > 0 {
 			st.Running = true
 			st.PID = pid
@@ -112,40 +140,52 @@ func QueryStatus(name string) ServiceStatus {
 	return st
 }
 
+// findProcessPID 纯 Go 扫描 /proc 获取进程 PID（不依赖外部 pgrep/procps 包，适配精简版 Debian/Arch/Fedora 容器）
 func findProcessPID(name, bin string) int {
-	pattern := bin
-	if pattern == "" {
-		pattern = name
-	}
-	out, err := exec.Command("pgrep", "-f", pattern).Output()
-	if err != nil {
-		return 0
-	}
 	selfPID := os.Getpid()
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if pid, err := strconv.Atoi(strings.TrimSpace(line)); err == nil && pid > 0 && pid != selfPID {
-			return pid
+	entries, err := os.ReadDir("/proc")
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			pid, err := strconv.Atoi(e.Name())
+			if err != nil || pid <= 1 || pid == selfPID {
+				continue
+			}
+			cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+			if err != nil || len(cmdlineBytes) == 0 {
+				continue
+			}
+			parts := strings.Split(string(cmdlineBytes), "\x00")
+			arg0 := parts[0]
+			if (bin != "" && arg0 == bin) || filepath.Base(arg0) == name {
+				return pid
+			}
 		}
 	}
 	return 0
 }
 
-// WriteUnit 写入并重载 systemd 服务单元文件
+// WriteUnit 写入并注册系统服务（支持 systemd 与 OpenRC）
 func WriteUnit(name, description, execStart, execReload string, env map[string]string) error {
-	if !HasSystemd() {
-		return nil
+	binFields := strings.Fields(execStart)
+	if len(binFields) > 0 {
+		FixSELinuxContext(binFields[0])
 	}
-	var envLines strings.Builder
-	for k, v := range env {
-		if v != "" {
-			envLines.WriteString(fmt.Sprintf("Environment=\"%s=%s\"\n", k, strings.ReplaceAll(v, `"`, `\"`)))
+
+	if HasSystemd() {
+		var envLines strings.Builder
+		for k, v := range env {
+			if v != "" {
+				envLines.WriteString(fmt.Sprintf("Environment=\"%s=%s\"\n", k, strings.ReplaceAll(v, `"`, `\"`)))
+			}
 		}
-	}
-	reloadLine := ""
-	if execReload != "" {
-		reloadLine = fmt.Sprintf("ExecReload=%s\n", execReload)
-	}
-	unit := fmt.Sprintf(`[Unit]
+		reloadLine := ""
+		if execReload != "" {
+			reloadLine = fmt.Sprintf("ExecReload=%s\n", execReload)
+		}
+		unit := fmt.Sprintf(`[Unit]
 Description=%s
 After=network-online.target
 Wants=network-online.target
@@ -161,17 +201,50 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 `, description, envLines.String(), execStart, reloadLine)
 
-	unitPath := filepath.Join("/etc/systemd/system", name+".service")
-	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
-		return fmt.Errorf("写入 systemd 服务文件失败: %w", err)
+		unitPath := filepath.Join("/etc/systemd/system", name+".service")
+		if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
+			return fmt.Errorf("写入 systemd 服务文件失败: %w", err)
+		}
+		_ = exec.Command("systemctl", "daemon-reload").Run()
+		_ = exec.Command("systemctl", "enable", name).Run()
+		return nil
 	}
-	_ = exec.Command("systemctl", "daemon-reload").Run()
-	_ = exec.Command("systemctl", "enable", name).Run()
+
+	if HasOpenRC() && len(binFields) > 0 {
+		cmdBin := binFields[0]
+		cmdArgs := strings.Join(binFields[1:], " ")
+		var envExports strings.Builder
+		for k, v := range env {
+			if v != "" {
+				envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
+			}
+		}
+		rcScript := fmt.Sprintf(`#!/sbin/openrc-run
+description=%q
+command=%q
+command_args=%q
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+%s
+depend() {
+	need net
+}
+`, description, cmdBin, cmdArgs, envExports.String())
+		initPath := filepath.Join("/etc/init.d", name)
+		if err := os.WriteFile(initPath, []byte(rcScript), 0755); err == nil {
+			_ = exec.Command("rc-update", "add", name, "default").Run()
+		}
+	}
+
 	return nil
 }
 
-// Control 控制服务启停（支持 systemd 与无 systemd 回退）
+// Control 控制服务启停（自动适配 systemd / OpenRC / 后台守护进程回退）
 func Control(name, action, fallbackCmd string, fallbackArgs []string, logDir string, env map[string]string) error {
+	if fallbackCmd != "" {
+		FixSELinuxContext(fallbackCmd)
+	}
+
 	if HasSystemd() {
 		unitPath := filepath.Join("/etc/systemd/system", name+".service")
 		if _, err := os.Stat(unitPath); err == nil || name == "caddy" {
@@ -194,7 +267,22 @@ func Control(name, action, fallbackCmd string, fallbackArgs []string, logDir str
 		}
 	}
 
-	// 无 systemd 回退方案
+	if HasOpenRC() {
+		initPath := filepath.Join("/etc/init.d", name)
+		if _, err := os.Stat(initPath); err == nil {
+			rcAction := action
+			if rcAction == "reload" {
+				rcAction = "restart"
+			}
+			if out, err := exec.Command("rc-service", name, rcAction).CombinedOutput(); err == nil {
+				return nil
+			} else {
+				_ = out
+			}
+		}
+	}
+
+	// 通用后台守护回退方案（无 systemd 的精简容器 / WSL 等）
 	switch action {
 	case "stop":
 		stopProcessFallback(name, fallbackCmd)
@@ -229,6 +317,7 @@ func startProcessFallback(name, bin string, args []string, logDir string, env ma
 	if bin == "" {
 		return fmt.Errorf("未找到可执行文件: %s", name)
 	}
+	FixSELinuxContext(bin)
 	if logDir == "" {
 		logDir = "/tmp"
 	}
@@ -281,13 +370,18 @@ func ReadLogs(name, logDir string, lines int) string {
 	return fmt.Sprintf("暂无 %s 日志记录", name)
 }
 
-// RemoveService 停止并卸载指定 systemd 服务
+// RemoveService 停止并卸载指定服务
 func RemoveService(name string) {
 	if HasSystemd() {
 		_ = exec.Command("systemctl", "stop", name).Run()
 		_ = exec.Command("systemctl", "disable", name).Run()
 		_ = os.Remove(filepath.Join("/etc/systemd/system", name+".service"))
 		_ = exec.Command("systemctl", "daemon-reload").Run()
+	}
+	if HasOpenRC() {
+		_ = exec.Command("rc-service", name, "stop").Run()
+		_ = exec.Command("rc-update", "del", name, "default").Run()
+		_ = os.Remove(filepath.Join("/etc/init.d", name))
 	}
 	stopProcessFallback(name, FindBinary(name))
 }
